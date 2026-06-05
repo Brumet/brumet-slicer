@@ -1012,7 +1012,9 @@ ipcRenderer.on('update-status', (ev, info) => {
   } else if (info.type === 'available') {
     showBanner('available', `Nueva versión disponible: v${info.version}`, 'Descargar')
   } else if (info.type === 'progress') {
-    showBanner('available', `Descargando... ${info.percent}%`)
+    const pct = info.percent || 0
+    const bar = '█'.repeat(Math.floor(pct/10)) + '░'.repeat(10-Math.floor(pct/10))
+    showBanner('available', `Descargando ${pct}%  ${bar}`)
   } else if (info.type === 'ready') {
     showBanner('ready', 'Actualización lista — reinicia para instalar', 'Instalar y reiniciar')
   } else if (info.type === 'up-to-date') {
@@ -1026,8 +1028,21 @@ ipcRenderer.on('update-status', (ev, info) => {
 })
 
 async function handleUpdateBtn() {
-  if (updateState === 'available') await ipcRenderer.invoke('download-update')
-  else if (updateState === 'ready') await ipcRenderer.invoke('install-update')
+  if (updateState === 'available') {
+    const btn = document.getElementById('updateBtn')
+    btn.textContent = 'Iniciando...'
+    btn.disabled = true
+    const res = await ipcRenderer.invoke('download-update')
+    if (res && res.error) {
+      showBanner('checking', '⚠ Error al descargar: ' + res.error)
+      hideBanner(6000)
+      btn.disabled = false
+      btn.textContent = 'Descargar'
+    }
+    // Si ok:true — los eventos download-progress y update-downloaded actualizan el banner
+  } else if (updateState === 'ready') {
+    ipcRenderer.invoke('install-update')
+  }
 }
 
 async function checkUpdatesManual() {

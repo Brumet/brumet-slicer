@@ -61,7 +61,10 @@ ipcMain.handle('check-for-updates', async () => {
 })
 ipcMain.handle('download-update', async () => {
   if (!autoUpdater) return { error: 'No disponible' }
-  try { await autoUpdater.downloadUpdate(); return { ok: true } }
+  try {
+    autoUpdater.downloadUpdate()  // no await — los eventos de progreso manejan el UI
+    return { ok: true }
+  }
   catch(e) { return { error: e.message } }
 })
 ipcMain.handle('install-update', () => {
