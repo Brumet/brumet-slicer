@@ -265,6 +265,36 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
 .wa-num{font-size:11px;color:#1a5020;text-align:left;margin-top:1px}
 .wa-arrow{margin-left:auto;color:#1a3a1a;font-size:18px}
 .lic-footer{font-size:9px;color:#444;margin-top:18px;letter-spacing:.15em}
+
+/* ── Printer selector ── */
+.printer-sel{display:flex;gap:5px}
+.printer-opt{flex:1;height:32px;border:1px solid var(--bdr);border-radius:var(--rx);background:var(--surf);color:var(--txt2);font-size:11px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;letter-spacing:.05em;transition:all .18s;display:flex;align-items:center;justify-content:center;gap:5px}
+.printer-opt:hover{border-color:var(--bdr2);color:var(--txt)}
+.printer-opt.active{border-color:var(--red);background:rgba(224,49,58,0.08);color:var(--red)}
+.printer-opt svg{flex-shrink:0}
+
+/* ── Historial modal ── */
+.hist-modal{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);width:100%;max-width:520px;max-height:78vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.5);animation:springUp .4s cubic-bezier(0.34,1.56,0.64,1)}
+.hist-list{overflow-y:auto;flex:1}
+.hist-list::-webkit-scrollbar{width:4px}
+.hist-list::-webkit-scrollbar-thumb{background:var(--bdr2);border-radius:2px}
+.hist-entry{padding:13px 18px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:12px;transition:background .15s}
+.hist-entry:last-child{border-bottom:none}
+.hist-entry:hover{background:var(--surf)}
+.hist-info{flex:1;min-width:0}
+.hist-date{font-size:9px;color:var(--txt2);text-transform:uppercase;letter-spacing:.14em;font-weight:600}
+.hist-file{font-size:13px;font-weight:600;color:var(--txt);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.hist-cliente{font-size:11px;color:var(--txt2);margin-top:2px}
+.hist-right{text-align:right;flex-shrink:0}
+.hist-price{font-family:'Bebas Neue',sans-serif;font-size:19px;color:var(--gold);letter-spacing:.04em}
+.hist-mat{font-size:9px;color:var(--txt2);margin-top:1px}
+.hist-del{background:none;border:1px solid var(--bdr);border-radius:6px;color:var(--txt2);width:26px;height:26px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;margin-left:6px}
+.hist-del:hover{background:rgba(224,49,58,0.1);color:var(--red);border-color:rgba(224,49,58,0.4)}
+.hist-empty{padding:52px 24px;text-align:center;color:var(--txt2);font-size:13px;line-height:1.7}
+.hist-empty-icon{font-size:30px;margin-bottom:10px;opacity:.4}
+.hist-clear{padding:11px 18px;border-top:1px solid var(--bdr);display:flex;justify-content:flex-end}
+.hist-clear-btn{background:none;border:1px solid var(--bdr2);border-radius:var(--rx);padding:5px 14px;font-size:11px;color:var(--txt2);cursor:pointer;font-family:'Inter',sans-serif;transition:all .2s}
+.hist-clear-btn:hover{border-color:var(--red);color:var(--red)}
 </style>
 </head>
 <body>
@@ -332,6 +362,9 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
       <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="Cambiar tema" aria-label="Cambiar tema">
         <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
       </button>
+      <button class="icon-btn" onclick="openHistorial()" title="Historial de cotizaciones" aria-label="Historial">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </button>
       <button class="icon-btn" id="updateIconBtn" onclick="checkUpdatesManual()" title="Buscar actualizaciones" aria-label="Actualizaciones">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
       </button>
@@ -362,6 +395,27 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
 
     <div class="card">
       <div class="s-label">Configuracion</div>
+      <div class="field" style="margin-bottom:14px">
+        <label>Nombre del cliente <span style="opacity:.45;font-weight:400;text-transform:none;letter-spacing:0">(opcional)</span></label>
+        <input type="text" id="clienteInput" placeholder="Ej: Juan García" autocomplete="off" oninput="clienteNombre=this.value.trim()">
+      </div>
+      <div style="margin-bottom:14px">
+        <div class="s-label" style="margin-bottom:8px">Impresora</div>
+        <div class="printer-sel" id="printerSel">
+          <button class="printer-opt active" data-printer="Bambu A1" onclick="selectPrinter('Bambu A1')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+            A1
+          </button>
+          <button class="printer-opt" data-printer="Bambu P1S" onclick="selectPrinter('Bambu P1S')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+            P1S
+          </button>
+          <button class="printer-opt" data-printer="Bambu X1C" onclick="selectPrinter('Bambu X1C')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+            X1C
+          </button>
+        </div>
+      </div>
       <div class="field" style="margin-bottom:16px">
         <label>Altura del modelo (mm)</label>
         <input type="number" id="altura" placeholder="Ej: 100" min="1" max="256" value="100">
@@ -398,7 +452,11 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
       <div class="export-row">
         <button class="btn-exp" onclick="exportarPDF()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          Exportar PDF
+          PDF
+        </button>
+        <button class="btn-exp" onclick="compartirWhatsApp()" style="color:#25d366;border-color:rgba(37,211,102,0.35)">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+          WhatsApp
         </button>
       </div>
     </div>
@@ -419,6 +477,22 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
     <div class="pwd-error" id="pwdError">Contrasena incorrecta. Intenta de nuevo.</div>
     <button class="pwd-btn" onclick="checkPassword()">Confirmar</button>
     <button class="pwd-cancel" onclick="closePwdModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- Historial modal -->
+<div class="modal-overlay" id="historialModal" onclick="if(event.target===this)closeHistorial()">
+  <div class="hist-modal">
+    <div class="modal-head">
+      <h2>Historial de Cotizaciones</h2>
+      <button class="modal-close" onclick="closeHistorial()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="hist-list" id="historialContent"></div>
+    <div class="hist-clear" id="histClearRow" style="display:none">
+      <button class="hist-clear-btn" onclick="clearHistorial()">Limpiar todo</button>
+    </div>
   </div>
 </div>
 
@@ -471,6 +545,8 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
 const { ipcRenderer } = require('electron')
 let currentFilePath = null, precioKG = 70000, viewerDims = null, lastResult = null
 let selectedFilNombre = 'Básico', licenseIsOverlay = false
+let clienteNombre = ''
+let selectedPrinter = localStorage.getItem('brumet-printer') || 'Bambu A1'
 
 let cfg = {
   energiaW:225, tarifaEnergia:1000, desgasteTotal:3000000, horasDesgaste:74627,
@@ -626,6 +702,7 @@ function removeFile() {
   document.getElementById('dropZone').classList.remove('hidden')
   document.getElementById('fileLoaded').classList.add('hidden')
   document.getElementById('result').style.display='none'
+  document.getElementById('clienteInput').value=''; clienteNombre=''
 }
 const dz = document.getElementById('dropZone')
 dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.borderColor='var(--red)' })
@@ -756,7 +833,11 @@ async function procesar() {
   document.getElementById('result').style.display='none'
   try {
     const fileToSlice=(viewerDims&&viewerDims.tempSTLPath)?viewerDims.tempSTLPath:currentFilePath
-    const extraData=viewerDims?{scaleX:viewerDims.sx,scaleY:viewerDims.sy,scaleZ:viewerDims.sz,scalePct:viewerDims.tempSTLPath?'100':null}:null
+    const extraData={
+      ...(viewerDims?{scaleX:viewerDims.sx,scaleY:viewerDims.sy,scaleZ:viewerDims.sz,scalePct:viewerDims.tempSTLPath?'100':null}:{}),
+      impresora: selectedPrinter,
+      originalPath: viewerDims&&viewerDims.originalPath ? viewerDims.originalPath : undefined
+    }
     const resultado=await ipcRenderer.invoke('slice-model',fileToSlice,altura,extraData)
     const horas=parseFloat(resultado.horas), gramos=parseFloat(resultado.gramos)
     const {total,desglose}=calcularPrecio(horas,gramos)
@@ -765,7 +846,7 @@ async function procesar() {
     document.getElementById('resTiempo').textContent=resultado.tiempo
     document.getElementById('resGramos').textContent=gramos.toFixed(2)+'g'
     document.getElementById('resPrice').textContent=fmt(total)
-    document.getElementById('resMaterialBadge').textContent=selectedFilNombre+' · Bamboo A1'
+    document.getElementById('resMaterialBadge').textContent=selectedFilNombre+' · '+selectedPrinter
 
     // ── Sección multi-cama ──
     let multicamaEl = document.getElementById('multicamaSection')
@@ -800,13 +881,27 @@ async function procesar() {
     document.getElementById('result').style.display='block'
     document.getElementById('result').scrollIntoView({behavior:'smooth'})
     const thumbnail = generateThumbnail(currentFilePath)
+    const ahora = new Date()
     lastResult = {
-      archivo: currentFilePath.split(/[\\/]/).pop(),
-      fecha: new Date().toLocaleDateString('es-CO',{year:'numeric',month:'long',day:'numeric'}),
-      material: selectedFilNombre, tiempo: resultado.tiempo,
-      gramos: gramos.toFixed(2), precio: total, desglose, thumbnail,
-      camas: resultado.camas
+      archivo:     currentFilePath.split(/[\\/]/).pop(),
+      fecha:       ahora.toISOString().slice(0, 10),
+      fechaDisplay: ahora.toLocaleDateString('es-CO',{year:'numeric',month:'long',day:'numeric'}),
+      cliente:     clienteNombre || '',
+      material:    selectedFilNombre,
+      impresora:   selectedPrinter,
+      tiempo:      resultado.tiempo,
+      gramos:      gramos.toFixed(2),
+      precio:      total,
+      desglose,
+      thumbnail,
+      camas:       resultado.camas
     }
+    // ── Guardar en historial (sin thumbnail para ahorrar espacio) ──
+    const historial = await ipcRenderer.invoke('load-historial')
+    const { thumbnail: _t, desglose: _d, camas: _c, ...entryLight } = lastResult
+    historial.unshift({ id: ahora.getTime(), ...entryLight })
+    if (historial.length > 20) historial.length = 20
+    await ipcRenderer.invoke('save-historial', historial)
   } catch(err) { alert('Error al procesar: '+err) }
   finally { btn.innerHTML='Calcular Cotizacion'; btn.disabled=false; msg.style.display='none' }
 }
@@ -950,6 +1045,92 @@ async function checkUpdatesManual() {
   }
 }
 
+// ── Printer selector ──────────────────────────────────────────────────────
+function selectPrinter(name) {
+  selectedPrinter = name
+  localStorage.setItem('brumet-printer', name)
+  document.querySelectorAll('.printer-opt').forEach(b => {
+    b.classList.toggle('active', b.dataset.printer === name)
+  })
+}
+
+function initPrinterSel() {
+  document.querySelectorAll('.printer-opt').forEach(b => {
+    b.classList.toggle('active', b.dataset.printer === selectedPrinter)
+  })
+}
+
+// ── Historial ──────────────────────────────────────────────────────────────
+async function openHistorial() {
+  const historial = await ipcRenderer.invoke('load-historial')
+  renderHistorial(historial)
+  document.getElementById('historialModal').classList.add('open')
+}
+function closeHistorial() { document.getElementById('historialModal').classList.remove('open') }
+
+function renderHistorial(historial) {
+  const c   = document.getElementById('historialContent')
+  const row = document.getElementById('histClearRow')
+  if (!historial || historial.length === 0) {
+    c.innerHTML = `<div class="hist-empty"><div class="hist-empty-icon">📋</div>Sin cotizaciones aún.<br>Aquí aparecerán tus últimas 20 cotizaciones.</div>`
+    row.style.display = 'none'
+    return
+  }
+  row.style.display = 'flex'
+  c.innerHTML = historial.map((e, i) => `
+    <div class="hist-entry">
+      <div class="hist-info">
+        <div class="hist-date">${e.fechaDisplay || e.fecha}</div>
+        <div class="hist-file" title="${e.archivo}">${e.archivo}</div>
+        <div class="hist-cliente">${e.cliente ? '👤 ' + e.cliente : (e.material + (e.impresora ? ' · ' + e.impresora : ''))}</div>
+      </div>
+      <div class="hist-right">
+        <div class="hist-price">$${Math.round(e.precio).toLocaleString('es-CO')}</div>
+        <div class="hist-mat">${e.material}${e.impresora && e.cliente ? ' · ' + e.impresora : ''}</div>
+      </div>
+      <button class="hist-del" onclick="event.stopPropagation();deleteHistorialEntry(${i})" title="Eliminar">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>`).join('')
+}
+
+async function deleteHistorialEntry(idx) {
+  let historial = await ipcRenderer.invoke('load-historial')
+  historial.splice(idx, 1)
+  await ipcRenderer.invoke('save-historial', historial)
+  renderHistorial(historial)
+}
+
+async function clearHistorial() {
+  if (!confirm('¿Borrar todo el historial? Esta acción no se puede deshacer.')) return
+  await ipcRenderer.invoke('save-historial', [])
+  renderHistorial([])
+}
+
+// ── WhatsApp share ─────────────────────────────────────────────────────────
+function compartirWhatsApp() {
+  if (!lastResult) { alert('Primero genera una cotizacion.'); return }
+  const r = lastResult
+  const cliLine = r.cliente ? `👤 *Cliente:* ${r.cliente}\n` : ''
+  const msg = [
+    '🖨️ *Cotización Brumet*',
+    '',
+    `📁 *Archivo:* ${r.archivo}`,
+    cliLine.trim(),
+    `🎨 *Material:* ${r.material}`,
+    `⚙️ *Impresora:* ${r.impresora || 'Bambu A1'}`,
+    `⏱ *Tiempo:* ${r.tiempo}`,
+    `⚖️ *Filamento:* ${r.gramos}g`,
+    `💰 *Precio:* $${Math.round(r.precio).toLocaleString('es-CO')} COP`,
+    '',
+    '⚠️ _Precio sujeto a verificación final._',
+    '',
+    '_Brumet · Bogotá · 310 607 8712_'
+  ].filter(l => l !== undefined && !(l === '' && false)).join('\n').replace(/\n{3,}/g, '\n\n')
+  const url = `https://wa.me/?text=${encodeURIComponent(msg)}`
+  require('electron').shell.openExternal(url)
+}
+
 // ── License ────────────────────────────────────────────────────────────────
 const fs=require('fs'),path=require('path'),os=require('os'),crypto=require('crypto')
 const LICENSE_FILE=path.join(os.homedir(),'AppData','Roaming','Brumet Slicer','license.json')
@@ -985,6 +1166,7 @@ function tryActivate(){
 // ── Init ───────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
   applyTheme(userTheme)
+  initPrinterSel()
   VALID_HASHES = await ipcRenderer.invoke('load-license-hashes')
   const r=checkLicense()
   if(r.status==='trial'){showTrialBanner(r.daysLeft);showApp()}

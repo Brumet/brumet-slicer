@@ -133,12 +133,13 @@ const { laminarConBambu } = require('./slicer-bambu.js')
 ipcMain.handle('slice-model', async (event, filePath, heightMM, extraData) => {
 
   return new Promise((resolve, reject) => {
-    const scalePct = extraData && extraData.scalePct ? parseFloat(extraData.scalePct) : null
-    const originalPath = extraData && extraData.originalPath ? extraData.originalPath : filePath
+    const scalePct    = extraData && extraData.scalePct   ? parseFloat(extraData.scalePct) : null
+    const originalPath= extraData && extraData.originalPath ? extraData.originalPath : filePath
+    const printer     = extraData && extraData.impresora  ? extraData.impresora : 'Bambu A1'
     laminarConBambu(originalPath, scalePct, (err, resultado) => {
       if (err) { reject(err); return }
       resolve(resultado)
-    })
+    }, printer)
   })
 })
 
@@ -170,6 +171,22 @@ ipcMain.handle('save-settings', (event, s) => {
   catch(e) { return false }
 })
 
+// ── Historial de cotizaciones ─────────────────────────────────────────────────
+const HISTORIAL_FILE = path.join(app.getPath('userData'), 'historial.json')
+
+ipcMain.handle('load-historial', () => {
+  try {
+    if (fs.existsSync(HISTORIAL_FILE))
+      return JSON.parse(fs.readFileSync(HISTORIAL_FILE, 'utf8'))
+  } catch(e) {}
+  return []
+})
+
+ipcMain.handle('save-historial', (event, historial) => {
+  try { fs.writeFileSync(HISTORIAL_FILE, JSON.stringify(historial, null, 2), 'utf8'); return true }
+  catch(e) { return false }
+})
+
 // ── Licencias desde archivo ───────────────────────────────────────────────────
 ipcMain.handle('load-license-hashes', () => {
   try {
@@ -190,9 +207,10 @@ ipcMain.handle('export-pdf', async (event, data) => {
   const buf = await pdfWin.webContents.printToPDF({ pageSize: 'A4', printBackground: true, marginsType: 0 })
   pdfWin.close()
 
+  const clientSlug = data.cliente ? '_' + data.cliente.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ0-9]/g, '_').slice(0, 30) : ''
   const { filePath } = await dialog.showSaveDialog(mainWin, {
     title: 'Guardar cotización PDF',
-    defaultPath: `Cotizacion_Brumet_${new Date().toISOString().slice(0, 10)}.pdf`,
+    defaultPath: `Cotizacion_Brumet${clientSlug}_${new Date().toISOString().slice(0, 10)}.pdf`,
     filters: [{ name: 'PDF', extensions: ['pdf'] }]
   })
   if (!filePath) return { success: false }
@@ -241,6 +259,7 @@ body{font-family:'Helvetica Neue',Arial,sans-serif;background:#fff;color:#111;pa
 .brand-sub{font-size:10px;color:#999;letter-spacing:.1em;text-transform:uppercase;margin-top:5px}
 .doc-right{text-align:right}.doc-num{font-size:18px;font-weight:800;letter-spacing:.05em}
 .doc-date{font-size:11px;color:#888;margin-top:3px}
+.doc-cliente{font-size:12px;color:#444;margin-top:5px}.doc-cliente strong{color:#111}
 h2{font-size:9px;font-weight:800;color:#E0313A;text-transform:uppercase;letter-spacing:.18em;margin:20px 0 9px;padding-bottom:5px;border-bottom:1px solid #eee}
 .row{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f5f5f5}
 .lbl{color:#777}.val{font-weight:600}
@@ -253,11 +272,17 @@ h2{font-size:9px;font-weight:800;color:#E0313A;text-transform:uppercase;letter-s
 </style></head><body>
 <div class="hdr">
   <div>${brumetSVG}<div class="brand-sub">Cotizador de Impresión 3D · Bogotá, Colombia</div></div>
-  <div class="doc-right"><div class="doc-num">COTIZACIÓN</div><div class="doc-date">${data.fecha}</div></div>
+  <div class="doc-right">
+    <div class="doc-num">COTIZACIÓN</div>
+    <div class="doc-date">${data.fecha}</div>
+    ${data.cliente ? `<div class="doc-cliente">Para: <strong>${data.cliente}</strong></div>` : ''}
+  </div>
 </div>
 ${thumbSection}
 <h2>Detalle del modelo</h2>
 <div class="row"><span class="lbl">Archivo</span><span class="val">${data.archivo}</span></div>
+${data.cliente ? `<div class="row"><span class="lbl">Cliente</span><span class="val">${data.cliente}</span></div>` : ''}
+<div class="row"><span class="lbl">Impresora</span><span class="val">${data.impresora || 'Bambu A1'}</span></div>
 <div class="row"><span class="lbl">Material seleccionado</span><span class="val">${data.material}</span></div>
 <div class="row"><span class="lbl">Tiempo estimado de impresión</span><span class="val">${data.tiempo}</span></div>
 <div class="row"><span class="lbl">Filamento requerido</span><span class="val">${data.gramos}g</span></div>

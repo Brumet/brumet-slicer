@@ -16,12 +16,25 @@ const BAMBU_EXE = (() => {
 })()
 // En producción el ASAR empaqueta el código pero extraResources queda fuera
 // perfiles/ → resources/perfiles/  |  dev: __dirname/perfiles/
-const PLANTILLA_3MF = (() => {
-  const devPath  = path.join(__dirname, 'perfiles', 'elevador_config.3mf')
+function resolveProfile(filename) {
+  const devPath  = path.join(__dirname, 'perfiles', filename)
   if (fs.existsSync(devPath)) return devPath
-  const prodPath = path.join(process.resourcesPath || '', 'perfiles', 'elevador_config.3mf')
-  return prodPath
-})()
+  return path.join(process.resourcesPath || '', 'perfiles', filename)
+}
+
+const PLANTILLA_DEFAULT = resolveProfile('elevador_config.3mf')
+
+const PLANTILLAS_IMPRESORA = {
+  'Bambu A1':  resolveProfile('elevador_config.3mf'),
+  'Bambu P1S': resolveProfile('p1s_config.3mf'),
+  'Bambu X1C': resolveProfile('x1c_config.3mf'),
+}
+
+function getPlantilla(printer) {
+  const p = printer && PLANTILLAS_IMPRESORA[printer]
+  if (p && fs.existsSync(p)) return p
+  return PLANTILLA_DEFAULT  // fallback seguro a Bambu A1
+}
 const TEMP_DIR   = path.join(require('os').homedir(), 'AppData', 'Roaming', 'Brumet Slicer', 'temp')
 const OUTPUT_DIR = TEMP_DIR
 const SLICE_TIMEOUT_MS = 10 * 60 * 1000  // 10 minutos máximo
@@ -264,7 +277,7 @@ function objToModelXML(objPath, scalePct) {
 }
 
 // ── Preparar 3MF para laminar (STL, OBJ o 3MF directo) ───────────────────────
-function prepararArchivo(filePath, scalePct, callback) {
+function prepararArchivo(filePath, scalePct, callback, printer) {
   const ext = path.extname(filePath).toLowerCase()
 
   if (ext === '.3mf') {
@@ -277,7 +290,7 @@ function prepararArchivo(filePath, scalePct, callback) {
   const temp3MF = path.join(TEMP_DIR, 'modelo_cliente.3mf')
 
   try {
-    const zip = new AdmZip(PLANTILLA_3MF)
+    const zip = new AdmZip(getPlantilla(printer))
     let modelXML
 
     if (ext === '.obj') {
@@ -346,9 +359,10 @@ function formatTiempo(segundosTotales) {
   return h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`
 }
 
-function laminarConBambu(filePath, scalePct, callback) {
+function laminarConBambu(filePath, scalePct, callback, printer) {
   prepararArchivo(filePath, scalePct, (err, archivoFinal) => {
     if (err) return callback(err)
+
     const resultPath = path.join(OUTPUT_DIR, 'result.json')
     if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath)
     if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true })
@@ -401,7 +415,7 @@ function laminarConBambu(filePath, scalePct, callback) {
         callback('Error leyendo result.json: ' + e.message)
       }
     })
-  })
+  }, printer)
 }
 
 module.exports = { laminarConBambu }
