@@ -697,11 +697,13 @@ function exportSTLBinary(geo) {
 }
 
 function enviarALaminar() {
-  if (!currentFilePath || !modelMesh) { alert('Carga un modelo STL primero.'); return }
+  if (!currentFilePath || !modelMesh) { alert('Carga un modelo primero.'); return }
 
   // Aplicar transformaciones a la geometría
   modelMesh.updateMatrixWorld(true)
-  const clonedGeo = modelMesh.geometry.clone()
+  let clonedGeo = modelMesh.geometry.clone()
+  // ── Convertir a no-indexada si es OBJ/3MF (tienen índices) ──
+  if (clonedGeo.index) clonedGeo = clonedGeo.toNonIndexed()
   clonedGeo.applyMatrix4(modelMesh.matrixWorld)
   // Convertir de Y-up (Three.js) a Z-up (STL/BambuStudio)
   clonedGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2))
