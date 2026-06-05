@@ -1027,19 +1027,12 @@ ipcRenderer.on('update-status', (ev, info) => {
   }
 })
 
-async function handleUpdateBtn() {
+function handleUpdateBtn() {
   if (updateState === 'available') {
-    const btn = document.getElementById('updateBtn')
-    btn.textContent = 'Iniciando...'
-    btn.disabled = true
-    const res = await ipcRenderer.invoke('download-update')
-    if (res && res.error) {
-      showBanner('checking', '⚠ Error al descargar: ' + res.error)
-      hideBanner(6000)
-      btn.disabled = false
-      btn.textContent = 'Descargar'
-    }
-    // Si ok:true — los eventos download-progress y update-downloaded actualizan el banner
+    // Abrir navegador — más confiable que descargar dentro de la app (430 MB)
+    require('electron').shell.openExternal('https://github.com/Brumet/brumet-slicer/releases/latest')
+    showBanner('checking', '↗ Abriendo descarga en tu navegador... Instala el .exe cuando termine y la app se actualiza sola.')
+    hideBanner(9000)
   } else if (updateState === 'ready') {
     ipcRenderer.invoke('install-update')
   }
