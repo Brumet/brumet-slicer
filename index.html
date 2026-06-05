@@ -913,14 +913,16 @@ async function handleUpdateBtn() {
 
 async function checkUpdatesManual() {
   const iconBtn = document.getElementById('updateIconBtn')
-  manualCheck = true
-  if (iconBtn) { iconBtn.style.animation = 'spin .7s linear infinite'; setTimeout(()=>{iconBtn.style.animation=''},3000) }
+  if (iconBtn) iconBtn.style.animation = 'spin .7s linear infinite'
   showBanner('checking', 'Buscando actualizaciones...')
   const res = await ipcRenderer.invoke('check-for-updates')
-  if (res && res.error) {
+  if (iconBtn) iconBtn.style.animation = ''
+  if (!res || res.status === 'up-to-date') {
     showBanner('checking', '✓ Ya tienes la última versión instalada')
     hideBanner(3500)
-    manualCheck = false
+  } else if (res.status === 'available') {
+    updateState = 'available'
+    showBanner('available', `Nueva versión disponible: v${res.version}`, 'Descargar')
   }
 }
 

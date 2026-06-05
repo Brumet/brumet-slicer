@@ -48,9 +48,16 @@ function createWindow() {
 
 // ── IPC: Updater ──────────────────────────────────────────────────────────────
 ipcMain.handle('check-for-updates', async () => {
-  if (!autoUpdater) return { error: 'Actualizador no disponible en modo dev' }
-  try { await autoUpdater.checkForUpdates(); return { ok: true } }
-  catch(e) { return { error: e.message } }
+  if (!autoUpdater) return { status: 'up-to-date' }
+  try {
+    const result = await autoUpdater.checkForUpdates()
+    if (result && result.updateInfo && result.updateInfo.version !== app.getVersion()) {
+      return { status: 'available', version: result.updateInfo.version }
+    }
+    return { status: 'up-to-date' }
+  } catch(e) {
+    return { status: 'up-to-date' }
+  }
 })
 ipcMain.handle('download-update', async () => {
   if (!autoUpdater) return { error: 'No disponible' }
