@@ -213,27 +213,173 @@ function crearTemp3MF(stlPath, scalePct, callback) {
   }
 }
 
-function laminarConBambu(stlPath, scalePct, callback) {
-  crearTemp3MF(stlPath, scalePct, (err, temp3MF) => {
+// ── OBJ parser ────────────────────────────────────────────────────────────────
+function objToModelXML(objPath, scalePct) {
+  const texto = fs.readFileSync(objPath, 'utf8')
+  const escalaUsuario = (scalePct || 100) / 100
+  const rawVerts = [], verts = [], tris = []
+
+  texto.split('\n').forEach(line => {
+    const t = line.trim()
+    if (t.startsWith('v ')) {
+      const p = t.split(/\s+/)
+      rawVerts.push([parseFloat(p[1]), parseFloat(p[2]), parseFloat(p[3])])
+    } else if (t.startsWith('f ')) {
+      const parts = t.split(/\s+/).slice(1).map(p => parseInt(p.split('/')[0]) - 1)
+      // triangulate fan
+      for (let i = 1; i < parts.length - 1; i++) {
+        tris.push([parts[0], parts[i], parts[i+1]])
+      }
+    }
+  })
+
+  const maxCoord = rawVerts.reduce((m, v) => Math.max(m, Math.abs(v[0]), Math.abs(v[1]), Math.abs(v[2])), 0)
+  const escalaAuto = calcularEscala(maxCoord)
+  const escala = escalaAuto * escalaUsuario
+
+  rawVerts.forEach(([x,y,z]) => verts.push([
+    (x*escala).toFixed(6), (y*escala).toFixed(6), (z*escala).toFixed(6)
+  ]))
+
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
+ <metadata name="BambuStudio:3mfVersion">1</metadata>
+ <resources>
+  <object id="1" p:UUID="00010000-81cb-4c03-9d28-80fed5dfa1dc" type="model">
+   <mesh>
+    <vertices>\n`
+  for (const [x,y,z] of verts) xml += `     <vertex x="${x}" y="${y}" z="${z}"/>\n`
+  xml += `    </vertices>\n    <triangles>\n`
+  for (const [v1,v2,v3] of tris) xml += `     <triangle v1="${v1}" v2="${v2}" v3="${v3}"/>\n`
+  xml += `    </triangles>\n   </mesh>\n  </object>\n </resources>\n</model>`
+  return xml
+}
+
+// ── Preparar 3MF para laminar (STL, OBJ o 3MF directo) ───────────────────────
+function prepararArchivo(filePath, scalePct, callback) {
+  const ext = path.extname(filePath).toLowerCase()
+
+  if (ext === '.3mf') {
+    // Pasar directamente a BambuStudio — ya tiene configuración interna
+    callback(null, filePath)
+    return
+  }
+
+  if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true })
+  const temp3MF = path.join(TEMP_DIR, 'modelo_cliente.3mf')
+
+  try {
+    const zip = new AdmZip(PLANTILLA_3MF)
+    let modelXML
+
+    if (ext === '.obj') {
+      modelXML = objToModelXML(filePath, scalePct)
+    } else {
+      // STL (default)
+      modelXML = stlToModelXML(filePath, scalePct)
+    }
+
+    zip.updateFile('3D/Objects/object_1.model', Buffer.from(modelXML, 'utf8'))
+
+    // Calcular bbox para posicionamiento
+    let bbox
+    if (ext === '.obj') {
+      const texto = fs.readFileSync(filePath, 'utf8')
+      let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity
+      texto.split('\n').forEach(line => {
+        const t = line.trim()
+        if (t.startsWith('v ')) {
+          const p = t.split(/\s+/)
+          const x=parseFloat(p[1]),y=parseFloat(p[2]),z=parseFloat(p[3])
+          if(x<minX)minX=x;if(x>maxX)maxX=x
+          if(y<minY)minY=y;if(y>maxY)maxY=y
+          if(z<minZ)minZ=z;if(z>maxZ)maxZ=z
+        }
+      })
+      const maxCoord = Math.max(maxX-minX,maxY-minY,maxZ-minZ)
+      const escala = calcularEscala(maxCoord) * ((scalePct||100)/100)
+      bbox = {minX:minX*escala,maxX:maxX*escala,minY:minY*escala,maxY:maxY*escala,minZ:minZ*escala,maxZ:maxZ*escala}
+    } else {
+      bbox = calcularBboxFinal(filePath, scalePct)
+    }
+
+    const {minX,maxX,minY,maxY,minZ} = bbox
+    const cx = 128-(minX+maxX)/2, cy = 128-(minY+maxY)/2, cz = -minZ
+    const transform = `1 0 0 0 1 0 0 0 1 ${cx.toFixed(4)} ${cy.toFixed(4)} ${cz.toFixed(4)}`
+
+    const mainEntry = zip.getEntry('3D/3dmodel.model')
+    if (mainEntry) {
+      let mainContent = mainEntry.getData().toString('utf8')
+      mainContent = mainContent.replace(/(<component[^>]*)\s+transform="[^"]*"/, '$1 transform="1 0 0 0 1 0 0 0 1 0 0 0"')
+      mainContent = mainContent.replace(/(<item[^>]*)\s+transform="[^"]*"/, `$1 transform="${transform}"`)
+      zip.updateFile('3D/3dmodel.model', Buffer.from(mainContent, 'utf8'))
+    }
+    const plate1Entry = zip.getEntry('Metadata/plate_1.json')
+    if (plate1Entry) {
+      const plate1 = JSON.parse(plate1Entry.getData().toString('utf8'))
+      const bboxX1=parseFloat((minX+cx).toFixed(5)), bboxY1=parseFloat((minY+cy).toFixed(5))
+      const bboxX2=parseFloat((maxX+cx).toFixed(5)), bboxY2=parseFloat((maxY+cy).toFixed(5))
+      plate1.bbox_all=[bboxX1,bboxY1,bboxX2,bboxY2]
+      plate1.bbox_objects[0].bbox=[bboxX1,bboxY1,bboxX2,bboxY2]
+      plate1.bbox_objects[0].name=path.basename(filePath)
+      zip.updateFile('Metadata/plate_1.json', Buffer.from(JSON.stringify(plate1), 'utf8'))
+    }
+    zip.writeZip(temp3MF)
+    callback(null, temp3MF)
+  } catch(e) {
+    callback('Error preparando archivo: ' + e.message)
+  }
+}
+
+function formatTiempo(segundosTotales) {
+  const h = Math.floor(segundosTotales / 3600)
+  const m = Math.floor((segundosTotales % 3600) / 60)
+  const s = Math.floor(segundosTotales % 60)
+  return h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`
+}
+
+function laminarConBambu(filePath, scalePct, callback) {
+  prepararArchivo(filePath, scalePct, (err, archivoFinal) => {
     if (err) return callback(err)
     const resultPath = path.join(OUTPUT_DIR, 'result.json')
     if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath)
-    const proc = spawn(BAMBU_EXE, ['--slice', '1', '--outputdir', OUTPUT_DIR, temp3MF])
+    if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true })
+
+    const proc = spawn(BAMBU_EXE, ['--slice', '1', '--outputdir', OUTPUT_DIR, archivoFinal])
     let stderr = ''
     proc.stderr.on('data', d => stderr += d.toString())
     proc.on('close', () => {
-      if (!fs.existsSync(resultPath)) return callback('BambuStudio no genero result.json. ' + stderr)
+      if (!fs.existsSync(resultPath)) return callback('BambuStudio no generó result.json. ' + stderr)
       try {
         const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'))
         if (result.return_code !== 0) return callback('BambuStudio error: ' + result.error_string)
-        const plate = result.sliced_plates[0]
-        const gramos = plate.filaments.reduce((s, f) => s + f.total_used_g, 0)
-        const horas = plate.main_predication / 3600
-        const h = Math.floor(horas)
-        const m = Math.floor((horas - h) * 60)
-        const s = Math.floor(((horas - h) * 60 - m) * 60)
-        const tiempo = h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`
-        callback(null, { tiempo, horas: horas.toFixed(2), gramos: gramos.toFixed(2) })
+
+        const plates = result.sliced_plates || []
+        if (plates.length === 0) return callback('No se encontraron camas en el resultado')
+
+        // Procesar todas las camas
+        const camasData = plates.map((plate, idx) => {
+          const gramos = plate.filaments.reduce((s, f) => s + f.total_used_g, 0)
+          const horas  = plate.main_predication / 3600
+          return {
+            cama:   idx + 1,
+            tiempo: formatTiempo(plate.main_predication),
+            horas:  horas.toFixed(2),
+            gramos: gramos.toFixed(2)
+          }
+        })
+
+        const totalGramos = camasData.reduce((s, c) => s + parseFloat(c.gramos), 0)
+        const totalHoras  = camasData.reduce((s, c) => s + parseFloat(c.horas), 0)
+
+        callback(null, {
+          camas:      camasData,
+          multiCama:  camasData.length > 1,
+          // compatibilidad con código anterior (primera cama)
+          tiempo:     camasData[0].tiempo,
+          horas:      totalHoras.toFixed(2),
+          gramos:     totalGramos.toFixed(2)
+        })
       } catch(e) {
         callback('Error leyendo result.json: ' + e.message)
       }
