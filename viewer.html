@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Brumet Slicer — Visor 3D</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100vh;background:#f0f1f5;font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;overflow:hidden}
+#app{display:flex;flex-direction:column;height:100vh;background:#fff}
+#tb{display:flex;align-items:center;gap:6px;padding:0 12px;height:46px;background:#fff;border-bottom:1px solid rgba(0,0,0,0.08);flex-shrink:0}
+.tbg{display:flex;align-items:center;background:#f2f2f7;border-radius:8px;padding:3px;gap:2px}
+.tbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:52px;height:36px;border-radius:6px;border:none;background:transparent;cursor:pointer;color:#6e6e73;font-size:10px;font-weight:500;font-family:inherit;transition:all .15s}
+.tbtn:hover{background:rgba(0,0,0,0.07);color:#1d1d1f}
+.tbtn.on{background:#fff;color:#1d1d1f;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.tsep{width:1px;height:22px;background:rgba(0,0,0,0.1);margin:0 2px}
+.tsp{flex:1}
+.btn-abrir{display:flex;align-items:center;gap:5px;padding:6px 12px;border-radius:7px;border:none;background:#f2f2f7;color:#1d1d1f;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit}
+.btn-abrir:hover{background:#e5e5ea}
+.btn-laminar{padding:6px 16px;border-radius:7px;border:none;background:#0071e3;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
+.btn-laminar:hover{background:#005ec2}
+#chip{display:none;align-items:center;gap:4px;padding:3px 9px;background:#e8f2ff;border:1px solid #c0d8f8;border-radius:6px;font-size:11px;color:#0071e3;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#main{display:flex;flex:1;overflow:hidden}
+#vp{flex:1;position:relative;overflow:hidden;background:#e8e9ef}
+#badge{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.92);border:1px solid rgba(0,0,0,.09);border-radius:14px;padding:3px 12px;font-size:10px;font-weight:700;color:#1d1d1f;letter-spacing:.05em;text-transform:uppercase;pointer-events:none;z-index:5}
+#alert{display:none;position:absolute;top:0;left:0;right:0;background:rgba(255,149,0,.13);border-bottom:1px solid rgba(255,149,0,.3);padding:6px 14px;font-size:11px;color:#7a4f00;font-weight:500;z-index:5}
+#hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.85);border:1px solid rgba(0,0,0,.08);border-radius:14px;padding:3px 12px;font-size:10px;color:#6e6e73;pointer-events:none;z-index:5;white-space:nowrap}
+#loading{display:none;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(255,255,255,.96);border:1px solid rgba(0,0,0,.1);border-radius:10px;padding:18px 24px;font-size:13px;color:#1d1d1f;z-index:20}
+.sp{display:inline-block;width:14px;height:14px;border:2px solid #ddd;border-top-color:#0071e3;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+#sb{width:230px;background:#fff;border-left:1px solid rgba(0,0,0,0.08);display:flex;flex-direction:column;overflow-y:auto;flex-shrink:0}
+#sb::-webkit-scrollbar{width:3px}
+#sb::-webkit-scrollbar-thumb{background:#ddd;border-radius:2px}
+.pan{border-bottom:1px solid #f2f2f7;padding:11px 13px}
+.ptitle{font-size:10px;font-weight:700;color:#aaa;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px}
+.frow{display:flex;align-items:center;gap:5px;margin-bottom:5px}
+.ax{width:16px;height:16px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;color:#fff;flex-shrink:0}
+.fw{flex:1;display:flex;align-items:center;background:#f5f5f8;border:1px solid rgba(0,0,0,.07);border-radius:6px;overflow:hidden;min-width:0}
+.fw:focus-within{border-color:rgba(0,113,227,.4);background:#fff}
+.fi{flex:1;border:none;outline:none;padding:4px 5px;font-size:11px;font-family:monospace;text-align:right;color:#1d1d1f;background:transparent;min-width:0;width:0}
+.fu{font-size:9px;color:#aaa;padding:0 5px 0 1px;white-space:nowrap;flex-shrink:0}
+.lrow{display:flex;justify-content:center;margin:3px 0 5px}
+.lbtn{display:flex;align-items:center;gap:4px;padding:3px 9px;border-radius:6px;border:1px solid #e0e0e8;background:#f7f7fa;font-size:11px;color:#6e6e73;cursor:pointer;font-family:inherit}
+.lbtn.on{background:#e8f2ff;border-color:#b8d4f8;color:#0071e3}
+.slrow{display:flex;align-items:center;gap:6px;margin-top:3px}
+.slrow input[type=range]{flex:1;accent-color:#1d1d1f;cursor:pointer;height:3px}
+.slval{font-size:11px;color:#888;min-width:30px;text-align:right;font-family:monospace}
+.drow{display:flex;justify-content:space-between;font-size:11px;padding:2px 0}
+.dl{color:#aaa}.dv{font-weight:600;color:#1d1d1f;font-family:monospace}
+.spill{display:inline-flex;align-items:center;gap:4px;margin-top:6px;padding:3px 8px;border-radius:16px;font-size:10px;font-weight:500}
+.sok{background:#edf8f1;color:#1c7a3c}.serr{background:#fef0f0;color:#c00}
+.sdot{width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0}
+.sbtn{display:flex;align-items:center;gap:5px;width:100%;padding:6px 8px;border-radius:7px;border:1px solid #eaeaef;background:#f7f7fa;font-size:11px;font-weight:500;color:#1d1d1f;cursor:pointer;font-family:inherit;transition:all .15s;margin-bottom:4px}
+.sbtn:hover{background:#ebebf0}
+.sbtn.hi{background:#1d1d1f;border-color:#1d1d1f;color:#fff}
+.slicewrap{padding:11px 13px;border-top:1px solid #f2f2f7;margin-top:auto;flex-shrink:0}
+.slicebtn{width:100%;padding:8px;border-radius:8px;border:none;background:#0071e3;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+.slicebtn:hover{background:#005ec2}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="tb">
+    <button class="btn-abrir" id="btnAbrir">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+      Abrir STL
+    </button>
+    <div id="chip"></div>
+    <div class="tsep"></div>
+    <div class="tbg">
+      <button class="tbtn on" id="tb-move" onclick="setMode('move')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
+        Mover
+      </button>
+      <button class="tbtn" id="tb-rotate" onclick="setMode('rotate')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        Rotar
+      </button>
+      <button class="tbtn" id="tb-scale" onclick="setMode('scale')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+        Escalar
+      </button>
+    </div>
+    <div class="tsep"></div>
+    <div class="tbg">
+      <button class="tbtn" onclick="autoOrient()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 20 2 20"/></svg>
+        Auto
+      </button>
+      <button class="tbtn" onclick="centerModel()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="3" y1="12" x2="7" y2="12"/><line x1="17" y1="12" x2="21" y2="12"/></svg>
+        Centrar
+      </button>
+      <button class="tbtn" onclick="resetAll()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.02"/></svg>
+        Reset
+      </button>
+    </div>
+    <div class="tsp"></div>
+    <button class="btn-laminar" onclick="enviarALaminar()">Laminar →</button>
+  </div>
+
+  <div id="main">
+    <div id="vp">
+      <div id="badge">ORBITAR CÁMARA</div>
+      <div id="alert">⚠ El modelo supera el área de impresión (256×256×256 mm)</div>
+      <div id="loading"><span class="sp"></span>Cargando modelo...</div>
+      <div id="hint">Sin selección: orbita · Click modelo: seleccionar · Scroll: zoom · Shift+drag: paneo</div>
+    </div>
+    <div id="sb">
+      <!-- Posición -->
+      <div class="pan">
+        <div class="ptitle">Posición</div>
+        <div class="frow">
+          <div class="ax" style="background:#e74c3c">X</div>
+          <div class="fw"><input class="fi" id="px" type="number" value="0" step="1"><span class="fu">mm</span></div>
+        </div>
+        <div class="frow">
+          <div class="ax" style="background:#27ae60">Y</div>
+          <div class="fw"><input class="fi" id="py" type="number" value="0" step="1"><span class="fu">mm</span></div>
+        </div>
+        <div class="frow">
+          <div class="ax" style="background:#2980b9">Z</div>
+          <div class="fw"><input class="fi" id="pz" type="number" value="0" step="1"><span class="fu">mm</span></div>
+        </div>
+      </div>
+      <!-- Rotación -->
+      <div class="pan">
+        <div class="ptitle">Rotación</div>
+        <div class="frow">
+          <div class="ax" style="background:#e74c3c">X</div>
+          <div class="fw"><input class="fi" id="rx" type="number" value="0" step="1"><span class="fu">°</span></div>
+        </div>
+        <div class="frow">
+          <div class="ax" style="background:#27ae60">Y</div>
+          <div class="fw"><input class="fi" id="ry" type="number" value="0" step="1"><span class="fu">°</span></div>
+        </div>
+        <div class="frow">
+          <div class="ax" style="background:#2980b9">Z</div>
+          <div class="fw"><input class="fi" id="rz" type="number" value="0" step="1"><span class="fu">°</span></div>
+        </div>
+      </div>
+      <!-- Escala -->
+      <div class="pan">
+        <div class="ptitle">Escala</div>
+        <div class="frow">
+          <div class="ax" style="background:#e74c3c">X</div>
+          <div class="fw"><input class="fi" id="sx" type="number" value="100" step="1" min="0.1"><span class="fu">%</span></div>
+          <div class="fw"><input class="fi" id="mx" type="number" step="0.1" min="0.1" placeholder="—"><span class="fu">mm</span></div>
+        </div>
+        <div class="frow">
+          <div class="ax" style="background:#27ae60">Y</div>
+          <div class="fw"><input class="fi" id="sy" type="number" value="100" step="1" min="0.1"><span class="fu">%</span></div>
+          <div class="fw"><input class="fi" id="my" type="number" step="0.1" min="0.1" placeholder="—"><span class="fu">mm</span></div>
+        </div>
+        <div class="frow">
+          <div class="ax" style="background:#2980b9">Z</div>
+          <div class="fw"><input class="fi" id="sz" type="number" value="100" step="1" min="0.1"><span class="fu">%</span></div>
+          <div class="fw"><input class="fi" id="mz" type="number" step="0.1" min="0.1" placeholder="—"><span class="fu">mm</span></div>
+        </div>
+        <div class="lrow">
+          <button class="lbtn on" id="lbtn" onclick="toggleLink()">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+            <span id="llbl">Escala uniforme</span>
+          </button>
+        </div>
+        <div class="slrow">
+          <input type="range" min="1" max="300" value="100" step="1" id="scsl">
+          <span class="slval" id="scpct">100%</span>
+        </div>
+      </div>
+      <!-- Dimensiones -->
+      <div class="pan">
+        <div class="ptitle">Dimensiones reales</div>
+        <div class="drow"><span class="dl">Ancho (X)</span><span class="dv" id="dim-x">— mm</span></div>
+        <div class="drow"><span class="dl">Prof. (Y)</span><span class="dv" id="dim-y">— mm</span></div>
+        <div class="drow"><span class="dl">Alto (Z)</span><span class="dv" id="dim-z">— mm</span></div>
+        <div class="spill sok" id="spill"><span class="sdot"></span><span id="stxt">Sin modelo</span></div>
+      </div>
+      <!-- Orientación -->
+      <div class="pan">
+        <div class="ptitle">Orientación inteligente</div>
+        <button class="sbtn hi" onclick="autoOrient()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 22 20 2 20"/></svg>
+          Sup. más plana abajo
+        </button>
+        <button class="sbtn" onclick="rot90('x')">Rotar 90° en X</button>
+        <button class="sbtn" onclick="rot90('y')">Rotar 90° en Y</button>
+        <button class="sbtn" onclick="rot90('z')">Rotar 90° en Z</button>
+      </div>
+      <div class="slicewrap">
+        <button class="slicebtn" onclick="enviarALaminar()">Laminar →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron')
+const fs = require('fs')
+const path = require('path')
+const THREE = require(path.join(__dirname, 'node_modules', 'three', 'build', 'three.cjs'))
+
+const BED = 256
+// Transform state
+const T = { px:0, py:0, pz:0, rx:0, ry:0, rz:0, sx:100, sy:100, sz:100 }
+let baseDims = { x:0, y:0, z:0 }
+let linked = true, mode = 'move'
+let modelMesh = null, outlineMesh = null, modelSelected = false
+let currentFilePath = null
+let isDrag = false, didDrag = false, mx0 = 0, my0 = 0
+let camTheta = Math.PI/4, camPhi = Math.PI/6, camRadius = 520
+const camTarget = new THREE.Vector3(0, 60, 0)
+
+// ── Renderer ──
+const vp = document.getElementById('vp')
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setPixelRatio(window.devicePixelRatio)
+renderer.setClearColor(0xe8e9ef)
+renderer.shadowMap.enabled = true
+renderer.domElement.style.cssText = 'position:absolute;top:0;left:0'
+vp.appendChild(renderer.domElement)
+
+const scene = new THREE.Scene()
+const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 5000)
+
+// Lights
+scene.add(new THREE.AmbientLight(0xffffff, 0.7))
+const sun = new THREE.DirectionalLight(0xffffff, 0.8)
+sun.position.set(200, 400, 200)
+sun.castShadow = true
+scene.add(sun)
+const fill = new THREE.DirectionalLight(0xd4e8ff, 0.3)
+fill.position.set(-150, 200, -200)
+scene.add(fill)
+
+// Bed
+const bedMesh = new THREE.Mesh(
+  new THREE.BoxGeometry(BED, 1, BED),
+  new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.9 })
+)
+bedMesh.position.y = -0.5
+bedMesh.receiveShadow = true
+scene.add(bedMesh)
+
+const grid = new THREE.GridHelper(BED, 16, 0x444444, 0x383838)
+grid.position.y = 0.1
+scene.add(grid)
+
+// Volume bounding box
+const volBox = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(BED, BED, BED)),
+  new THREE.LineBasicMaterial({ color: 0x8899bb, transparent: true, opacity: 0.18 })
+)
+volBox.position.y = BED / 2
+scene.add(volBox)
+
+// Small axes at origin
+scene.add(new THREE.AxesHelper(20))
+
+// ── STL Parser ──
+function parseSTL(buffer) {
+  const geo = new THREE.BufferGeometry()
+  const dv = new DataView(buffer)
+  const faceCount = dv.getUint32(80, true)
+  const expectedSize = 80 + 4 + faceCount * 50
+  const isBinary = expectedSize === buffer.byteLength
+
+  if (isBinary) {
+    const verts = new Float32Array(faceCount * 9)
+    const norms = new Float32Array(faceCount * 9)
+    let off = 84
+    for (let i = 0; i < faceCount; i++) {
+      const nx = dv.getFloat32(off, true), ny = dv.getFloat32(off+4, true), nz = dv.getFloat32(off+8, true)
+      off += 12
+      for (let j = 0; j < 3; j++) {
+        const vi = i*9 + j*3
+        verts[vi]   = dv.getFloat32(off, true)
+        verts[vi+1] = dv.getFloat32(off+4, true)
+        verts[vi+2] = dv.getFloat32(off+8, true)
+        norms[vi] = nx; norms[vi+1] = ny; norms[vi+2] = nz
+        off += 12
+      }
+      off += 2
+    }
+    geo.setAttribute('position', new THREE.BufferAttribute(verts, 3))
+    geo.setAttribute('normal', new THREE.BufferAttribute(norms, 3))
+  } else {
+    const text = new TextDecoder().decode(buffer)
+    const verts = []
+    const re = /vertex\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)/g
+    let m
+    while ((m = re.exec(text)) !== null) verts.push(+m[1], +m[2], +m[3])
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3))
+    geo.computeVertexNormals()
+  }
+  return geo
+}
+
+// ── Load STL ──
+function loadSTL(filePath) {
+  currentFilePath = filePath
+  const name = filePath.split(/[\\/]/).pop()
+  document.getElementById('chip').textContent = name
+  document.getElementById('chip').style.display = 'flex'
+  document.getElementById('loading').style.display = 'block'
+
+  setTimeout(() => {
+    try {
+      const buf = fs.readFileSync(filePath).buffer
+      let geo = parseSTL(buf)
+      geo.computeBoundingBox()
+
+      // Auto-detect units
+      const rawSize = new THREE.Vector3()
+      geo.boundingBox.getSize(rawSize)
+      const maxRaw = Math.max(rawSize.x, rawSize.y, rawSize.z)
+      if (maxRaw < 1)       geo.scale(1000, 1000, 1000)  // metros → mm
+      else if (maxRaw < 10) geo.scale(10, 10, 10)         // cm → mm
+
+      // Convertir Z-up (STL estándar) a Y-up (Three.js)
+      // Rotar geometría -90° en X: Z→Y, Y→-Z
+      geo.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2))
+      
+      // Center geometry: center in XZ, base at Y=0
+      geo.computeBoundingBox()
+      const b = geo.boundingBox
+      const cx = (b.max.x + b.min.x) / 2
+      const cz = (b.max.z + b.min.z) / 2
+      const cy = b.min.y
+      geo.translate(-cx, -cy, -cz)
+      geo.computeBoundingBox()
+
+      // Dimensiones reales después de rotar la geometría
+      const size = new THREE.Vector3()
+      geo.boundingBox.getSize(size)
+      baseDims = { x: size.x, y: size.y, z: size.z }
+
+      // Remove old model
+      if (modelMesh) { scene.remove(modelMesh); scene.remove(outlineMesh) }
+
+      const mat = new THREE.MeshStandardMaterial({ color: 0xc87533, roughness: 0.55, metalness: 0.05 })
+      modelMesh = new THREE.Mesh(geo, mat)
+      modelMesh.castShadow = true
+      scene.add(modelMesh)
+
+      const outMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.BackSide })
+      outlineMesh = new THREE.Mesh(geo.clone(), outMat)
+      outlineMesh.visible = false
+      scene.add(outlineMesh)
+
+      // Auto-scale to fit bed
+      const maxDim = Math.max(baseDims.x, baseDims.y, baseDims.z)
+      let autoScale = 100
+      if (maxDim > BED * 0.9) autoScale = Math.floor((BED * 0.88 / maxDim) * 100)
+
+      Object.assign(T, { px:0, py:0, pz:0, rx:0, ry:0, rz:0, sx:autoScale, sy:autoScale, sz:autoScale })
+      modelSelected = false
+      applyTransform()
+
+      // Fit camera
+      const scaledMax = maxDim * autoScale / 100
+      camRadius = Math.max(scaledMax * 2.8, 280)
+      camTarget.set(0, scaledMax * 0.4, 0)
+      syncUI()
+    } catch(e) {
+      alert('Error cargando STL: ' + e.message)
+      console.error(e)
+    }
+    document.getElementById('loading').style.display = 'none'
+  }, 30)
+}
+
+// ── Apply Transform ──
+function applyTransform() {
+  if (!modelMesh) return
+  const D = Math.PI / 180
+  const s = 1 / 100
+
+  modelMesh.scale.set(T.sx * s, T.sy * s, T.sz * s)
+  modelMesh.rotation.set(T.rx * D, T.ry * D, T.rz * D)
+  modelMesh.position.set(0, 0, 0)
+
+  // After applying scale/rotation, compute bounding box to find base
+  const box = new THREE.Box3().setFromObject(modelMesh)
+  // Center in XZ, sit on bed (Y=0), plus user offset
+  const cx = (box.max.x + box.min.x) / 2
+  const cz = (box.max.z + box.min.z) / 2
+  const yBase = -box.min.y // lift so min.y = 0
+
+  modelMesh.position.set(T.px - cx, T.py + yBase, T.pz - cz)
+
+  if (outlineMesh) {
+    outlineMesh.scale.copy(modelMesh.scale).multiplyScalar(1.02)
+    outlineMesh.rotation.copy(modelMesh.rotation)
+    const box2 = new THREE.Box3().setFromObject(outlineMesh)
+    const cx2 = (box2.max.x + box2.min.x) / 2
+    const cz2 = (box2.max.z + box2.min.z) / 2
+    outlineMesh.position.set(T.px - cx2, T.py + (-box2.min.y), T.pz - cz2)
+  }
+
+  updateDims()
+}
+
+// ── Update dimensions display ──
+function updateDims() {
+  if (!baseDims.x) return
+  const box = new THREE.Box3().setFromObject(modelMesh)
+  const size = new THREE.Vector3()
+  box.getSize(size)
+  const sx = size.x.toFixed(1), sy = size.y.toFixed(1), sz = size.z.toFixed(1)
+  document.getElementById('dim-x').textContent = sx + ' mm'
+  document.getElementById('dim-y').textContent = sz + ' mm'
+  document.getElementById('dim-z').textContent = sy + ' mm'
+  const ov = size.x > BED || size.y > BED || size.z > BED
+  document.getElementById('alert').style.display = ov ? 'block' : 'none'
+  const pill = document.getElementById('spill'), txt = document.getElementById('stxt')
+  if (ov) { pill.className = 'spill serr'; txt.textContent = 'Fuera del área ⚠'; modelMesh.material.color.set(0xff5520) }
+  else     { pill.className = 'spill sok'; txt.textContent = 'Dentro del área ✓'; modelMesh.material.color.set(0xc87533) }
+}
+
+// ── Sync UI fields ──
+function syncUI() {
+  document.getElementById('px').value = T.px.toFixed(0)
+  document.getElementById('py').value = T.py.toFixed(0)
+  document.getElementById('pz').value = T.pz.toFixed(0)
+  document.getElementById('rx').value = T.rx.toFixed(0)
+  document.getElementById('ry').value = T.ry.toFixed(0)
+  document.getElementById('rz').value = T.rz.toFixed(0)
+  document.getElementById('sx').value = T.sx.toFixed(1)
+  document.getElementById('sy').value = T.sy.toFixed(1)
+  document.getElementById('sz').value = T.sz.toFixed(1)
+  const avg = Math.round((T.sx + T.sy + T.sz) / 3)
+  document.getElementById('scsl').value = avg
+  document.getElementById('scpct').textContent = avg + '%'
+  // Update mm fields
+  if (baseDims.x) {
+    document.getElementById('mx').value = (baseDims.x * T.sx / 100).toFixed(1)
+    document.getElementById('my').value = (baseDims.y * T.sy / 100).toFixed(1)
+    document.getElementById('mz').value = (baseDims.z * T.sz / 100).toFixed(1)
+  }
+  updateDims()
+}
+
+// ── Input handlers — only on Enter or blur ──
+function bindField(id, onCommit) {
+  const el = document.getElementById(id)
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') { onCommit(parseFloat(el.value)); el.blur() } })
+  el.addEventListener('blur', () => onCommit(parseFloat(el.value) || 0))
+}
+
+bindField('px', v => { T.px = v; applyTransform() })
+bindField('py', v => { T.py = v; applyTransform() })
+bindField('pz', v => { T.pz = v; applyTransform() })
+bindField('rx', v => { T.rx = v; applyTransform() })
+bindField('ry', v => { T.ry = v; applyTransform() })
+bindField('rz', v => { T.rz = v; applyTransform() })
+
+// Scale % fields
+function applyScalePct(axis, val) {
+  val = Math.max(0.1, val || 0.1)
+  if (linked) {
+    const ratio = val / T[axis]
+    T.sx = Math.max(0.1, T.sx * ratio)
+    T.sy = Math.max(0.1, T.sy * ratio)
+    T.sz = Math.max(0.1, T.sz * ratio)
+  } else {
+    T[axis] = val
+  }
+  syncUI(); applyTransform()
+}
+bindField('sx', v => applyScalePct('sx', v))
+bindField('sy', v => applyScalePct('sy', v))
+bindField('sz', v => applyScalePct('sz', v))
+
+// Scale mm fields
+function applyScaleMM(axis, val) {
+  if (!val || !baseDims.x) return
+  val = Math.max(0.1, val)
+  const dimMap = { x: baseDims.x, y: baseDims.y, z: baseDims.z }
+  const axMap  = { x: 'sx', y: 'sy', z: 'sz' }
+  const newPct = (val / dimMap[axis]) * 100
+  applyScalePct(axMap[axis], newPct)
+}
+bindField('mx', v => applyScaleMM('x', v))
+bindField('my', v => applyScaleMM('y', v))
+bindField('mz', v => applyScaleMM('z', v))
+
+// Slider
+document.getElementById('scsl').addEventListener('input', function() {
+  const v = parseInt(this.value)
+  document.getElementById('scpct').textContent = v + '%'
+  T.sx = v; T.sy = v; T.sz = v
+  syncUI(); applyTransform()
+})
+
+function toggleLink() {
+  linked = !linked
+  document.getElementById('lbtn').classList.toggle('on', linked)
+  document.getElementById('llbl').textContent = linked ? 'Escala uniforme' : 'Libre X/Y/Z'
+}
+
+// ── Camera ──
+function updateCamera() {
+  const x = camRadius * Math.sin(camTheta) * Math.cos(camPhi)
+  const y = camRadius * Math.sin(camPhi)
+  const z = camRadius * Math.cos(camTheta) * Math.cos(camPhi)
+  camera.position.set(camTarget.x + x, camTarget.y + y, camTarget.z + z)
+  camera.lookAt(camTarget)
+}
+
+// ── Raycaster ──
+const raycaster = new THREE.Raycaster()
+const mouse2 = new THREE.Vector2()
+function hitTest(e) {
+  if (!modelMesh) return false
+  const rect = renderer.domElement.getBoundingClientRect()
+  mouse2.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+  mouse2.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+  raycaster.setFromCamera(mouse2, camera)
+  return raycaster.intersectObject(modelMesh).length > 0
+}
+
+// ── Mouse ──
+renderer.domElement.addEventListener('mousedown', e => { isDrag = true; didDrag = false; mx0 = e.clientX; my0 = e.clientY })
+window.addEventListener('mouseup', e => {
+  if (!isDrag) return
+  isDrag = false
+  if (!didDrag) {
+    const hit = hitTest(e)
+    modelSelected = hit
+    if (outlineMesh) outlineMesh.visible = hit
+    updateBadge()
+  }
+})
+window.addEventListener('mousemove', e => {
+  if (!isDrag) return
+  const dx = e.clientX - mx0, dy = e.clientY - my0
+  if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didDrag = true
+  mx0 = e.clientX; my0 = e.clientY
+  if (!didDrag) return
+
+  if (!modelSelected || mode === 'orbit') {
+    if (e.shiftKey) {
+      const right = new THREE.Vector3(Math.cos(camTheta), 0, -Math.sin(camTheta))
+      camTarget.addScaledVector(right, -dx * 0.3)
+      camTarget.y += dy * 0.3
+    } else {
+      camTheta -= dx * 0.007
+      camPhi = Math.max(0.05, Math.min(Math.PI/2 - 0.02, camPhi - dy * 0.005))
+    }
+    return
+  }
+
+  if (mode === 'move') {
+    if (e.shiftKey) { T.py += -dy * 0.5; document.getElementById('py').value = T.py.toFixed(0) }
+    else {
+      T.px += Math.cos(camTheta) * dx * 0.4 + Math.sin(camTheta) * dy * 0.4
+      T.pz += -Math.sin(camTheta) * dx * 0.4 + Math.cos(camTheta) * dy * 0.4
+      document.getElementById('px').value = T.px.toFixed(0)
+      document.getElementById('pz').value = T.pz.toFixed(0)
+    }
+  } else if (mode === 'rotate') {
+    if (e.shiftKey) { T.rx += dy * 0.5; document.getElementById('rx').value = T.rx.toFixed(0) }
+    else            { T.ry -= dx * 0.5; document.getElementById('ry').value = T.ry.toFixed(0) }
+  } else if (mode === 'scale') {
+    const d = -dy * 0.3
+    if (linked) { T.sx = Math.max(0.1, T.sx + d); T.sy = Math.max(0.1, T.sy + d); T.sz = Math.max(0.1, T.sz + d) }
+    else        { T.sx = Math.max(0.1, T.sx + d) }
+    syncUI()
+  }
+  applyTransform()
+})
+renderer.domElement.addEventListener('wheel', e => {
+  camRadius = Math.max(60, Math.min(1500, camRadius + e.deltaY * 0.6))
+}, { passive: true })
+
+// ── Toolbar actions ──
+function setMode(m) {
+  mode = m
+  ;['move','rotate','scale'].forEach(k => document.getElementById('tb-'+k).classList.toggle('on', k === m))
+  updateBadge()
+}
+function updateBadge() {
+  const labels = { move:'MOVER', rotate:'ROTAR', scale:'ESCALAR' }
+  if (!modelSelected) {
+    document.getElementById('badge').textContent = 'ORBITAR CÁMARA'
+    document.getElementById('hint').textContent = 'Sin selección: orbita · Click modelo: seleccionar · Scroll: zoom · Shift+drag: paneo'
+  } else {
+    document.getElementById('badge').textContent = labels[mode] || mode.toUpperCase()
+    document.getElementById('hint').textContent = 'Arrastra: transformar · Shift+drag: eje alt · Click vacío / Esc: deseleccionar'
+  }
+}
+function autoOrient() { T.rx = 0; T.ry = 0; T.rz = 0; syncUI(); applyTransform() }
+function centerModel() { T.px = 0; T.pz = 0; T.py = 0; syncUI(); applyTransform() }
+function resetAll() {
+  const maxDim = Math.max(baseDims.x || 100, baseDims.y || 100, baseDims.z || 100)
+  let autoScale = 100
+  if (maxDim > BED * 0.9) autoScale = Math.floor((BED * 0.88 / maxDim) * 100)
+  Object.assign(T, { px:0, py:0, pz:0, rx:0, ry:0, rz:0, sx:autoScale, sy:autoScale, sz:autoScale })
+  syncUI(); applyTransform()
+}
+function rot90(ax) {
+  const m = { x:'rx', y:'ry', z:'rz' }
+  T[m[ax]] = (T[m[ax]] + 90) % 360
+  syncUI(); applyTransform()
+}
+
+document.getElementById('btnAbrir').addEventListener('click', () => ipcRenderer.send('open-stl-dialog'))
+
+function exportSTLBinary(geo) {
+  // Exportar geometría como STL binario con transformaciones aplicadas
+  const pos = geo.attributes.position
+  const faceCount = pos.count / 3
+  const buffer = new ArrayBuffer(80 + 4 + faceCount * 50)
+  const dv = new DataView(buffer)
+  // Header vacío (80 bytes)
+  dv.setUint32(80, faceCount, true)
+  let offset = 84
+  for (let i = 0; i < faceCount; i++) {
+    // Normal (calculada)
+    const ax = pos.getX(i*3), ay = pos.getY(i*3), az = pos.getZ(i*3)
+    const bx = pos.getX(i*3+1), by = pos.getY(i*3+1), bz = pos.getZ(i*3+1)
+    const cx = pos.getX(i*3+2), cy = pos.getY(i*3+2), cz = pos.getZ(i*3+2)
+    const ex = bx-ax, ey = by-ay, ez = bz-az
+    const fx = cx-ax, fy = cy-ay, fz = cz-az
+    const nx = ey*fz - ez*fy, ny = ez*fx - ex*fz, nz = ex*fy - ey*fx
+    const nl = Math.sqrt(nx*nx+ny*ny+nz*nz) || 1
+    dv.setFloat32(offset, nx/nl, true); dv.setFloat32(offset+4, ny/nl, true); dv.setFloat32(offset+8, nz/nl, true)
+    offset += 12
+    // 3 vértices
+    for (let j = 0; j < 3; j++) {
+      dv.setFloat32(offset,   pos.getX(i*3+j), true)
+      dv.setFloat32(offset+4, pos.getY(i*3+j), true)
+      dv.setFloat32(offset+8, pos.getZ(i*3+j), true)
+      offset += 12
+    }
+    dv.setUint16(offset, 0, true); offset += 2
+  }
+  return Buffer.from(buffer)
+}
+
+function enviarALaminar() {
+  if (!currentFilePath || !modelMesh) { alert('Carga un modelo STL primero.'); return }
+
+  // Aplicar transformaciones a la geometría
+  modelMesh.updateMatrixWorld(true)
+  const clonedGeo = modelMesh.geometry.clone()
+  clonedGeo.applyMatrix4(modelMesh.matrixWorld)
+  // Convertir de Y-up (Three.js) a Z-up (STL/BambuStudio)
+  clonedGeo.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2))
+
+  // Obtener dimensiones reales
+  const box = new THREE.Box3().setFromObject(modelMesh)
+  const size = new THREE.Vector3()
+  box.getSize(size)
+
+  // Guardar STL transformado directamente con fs (no por IPC)
+  try {
+    const os = require('os')
+    const tempDir = path.join(os.homedir(), 'AppData', 'Roaming', 'Brumet Slicer', 'temp')
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true })
+    const tempSTL = path.join(tempDir, 'modelo_transformado.stl')
+    const stlBuffer = exportSTLBinary(clonedGeo)
+    fs.writeFileSync(tempSTL, stlBuffer)
+    console.log('STL guardado:', tempSTL, stlBuffer.length, 'bytes')
+
+    const dims = {
+      tempSTLPath: tempSTL,
+      originalPath: currentFilePath,
+      heightMM: Math.round(size.y),
+      sx: parseFloat(size.x.toFixed(1)),
+      sy: parseFloat(size.y.toFixed(1)),
+      sz: parseFloat(size.z.toFixed(1)),
+      scalePct: ((T.sx + T.sy + T.sz) / 3).toFixed(2)  // porcentaje promedio de escala
+    }
+    ipcRenderer.send('slice-from-viewer', dims)
+    ipcRenderer.send('close-viewer')
+  } catch(e) {
+    alert('Error exportando STL: ' + e.message)
+    console.error(e)
+  }
+}
+
+ipcRenderer.on('load-stl', (e, fp) => loadSTL(fp))
+
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return
+  if (e.key === 'w' || e.key === 'W') setMode('move')
+  if (e.key === 'e' || e.key === 'E') setMode('rotate')
+  if (e.key === 'r' || e.key === 'R') setMode('scale')
+  if (e.key === 'Escape') { modelSelected = false; if (outlineMesh) outlineMesh.visible = false; updateBadge() }
+})
+
+// ── Resize ──
+function resize() {
+  const W = vp.clientWidth, H = vp.clientHeight
+  renderer.setSize(W, H)
+  renderer.domElement.style.width = W + 'px'
+  renderer.domElement.style.height = H + 'px'
+  camera.aspect = W / H
+  camera.updateProjectionMatrix()
+}
+window.addEventListener('resize', resize)
+
+// ── Render loop ──
+function animate() {
+  requestAnimationFrame(animate)
+  updateCamera()
+  renderer.render(scene, camera)
+}
+
+resize()
+updateCamera()
+animate()
+updateBadge()
+</script>
+</body>
+</html>

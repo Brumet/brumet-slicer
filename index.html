@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brumet Slicer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --red:#E0313A; --red-h:#c4272f; --gold:#F5C842;
+  --bg:#0a0a0a; --bg2:#111; --bg3:#1a1a1a;
+  --surf:rgba(255,255,255,0.04); --surf-h:rgba(255,255,255,0.07);
+  --bdr:rgba(255,255,255,0.08); --bdr2:rgba(255,255,255,0.14);
+  --txt:#f5f5f7; --txt2:#86868b; --txt3:#3a3a3c;
+  --inp:#1c1c1e; --inp-bdr:rgba(255,255,255,0.1);
+  --shd:0 2px 24px rgba(0,0,0,.5),0 1px 0 rgba(255,255,255,0.05) inset;
+  --r:18px; --rs:12px; --rx:8px;
+}
+@media(prefers-color-scheme:light){:root{
+  --bg:#f2f2f7; --bg2:#fff; --bg3:#f0f0f5;
+  --surf:rgba(0,0,0,0.03); --surf-h:rgba(0,0,0,0.06);
+  --bdr:rgba(0,0,0,0.08); --bdr2:rgba(0,0,0,0.14);
+  --txt:#1c1c1e; --txt2:#6e6e73; --txt3:#c7c7cc;
+  --inp:#f5f5f7; --inp-bdr:rgba(0,0,0,0.1);
+  --shd:0 2px 20px rgba(0,0,0,0.08),0 1px 0 rgba(255,255,255,0.9) inset;
+}}
+[data-theme="dark"]{
+  --bg:#0a0a0a;--bg2:#111;--bg3:#1a1a1a;
+  --surf:rgba(255,255,255,0.04);--surf-h:rgba(255,255,255,0.07);
+  --bdr:rgba(255,255,255,0.08);--bdr2:rgba(255,255,255,0.14);
+  --txt:#f5f5f7;--txt2:#86868b;--txt3:#3a3a3c;
+  --inp:#1c1c1e;--inp-bdr:rgba(255,255,255,0.1);
+  --shd:0 2px 24px rgba(0,0,0,.5),0 1px 0 rgba(255,255,255,0.05) inset;
+}
+[data-theme="light"]{
+  --bg:#f2f2f7;--bg2:#fff;--bg3:#f0f0f5;
+  --surf:rgba(0,0,0,0.03);--surf-h:rgba(0,0,0,0.06);
+  --bdr:rgba(0,0,0,0.08);--bdr2:rgba(0,0,0,0.14);
+  --txt:#1c1c1e;--txt2:#6e6e73;--txt3:#c7c7cc;
+  --inp:#f5f5f7;--inp-bdr:rgba(0,0,0,0.1);
+  --shd:0 2px 20px rgba(0,0,0,0.08),0 1px 0 rgba(255,255,255,0.9) inset;
+}
+@keyframes springUp{from{opacity:0;transform:translateY(22px) scale(0.97)}to{opacity:1;transform:none}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes barFill{to{width:100%}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+@keyframes slideUp{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
+
+html,body{height:100%;overflow-x:hidden}
+body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var(--txt);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--bdr2);border-radius:3px}
+
+/* ── Intro ── */
+.intro{position:fixed;inset:0;background:#080808;z-index:1000;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.intro canvas{position:absolute;inset:0}
+.intro-content{position:relative;z-index:2;text-align:center}
+.intro-sub{font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:.55em;color:#555;text-transform:uppercase;margin-top:14px}
+.intro-bar{width:100px;height:2px;background:rgba(255,255,255,0.06);margin:22px auto 0;overflow:hidden;border-radius:2px}
+.intro-bar-fill{height:100%;background:var(--gold);width:0;animation:barFill 2s ease forwards}
+.app{opacity:0;animation:fadeIn 0.5s ease 2.5s forwards}
+
+/* ── Trial banner ── */
+#trialBanner{display:none;background:var(--red);padding:7px 20px;font-size:12px;color:#fff;font-weight:500;letter-spacing:.03em;align-items:center;justify-content:center;gap:10px}
+#trialBanner a{color:rgba(255,255,255,0.75);font-weight:700;text-decoration:none}
+.trial-activate{background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.3);color:#fff;padding:2px 11px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.1em;cursor:pointer;font-family:'Inter',sans-serif;transition:background .2s}
+.trial-activate:hover{background:rgba(0,0,0,0.35)}
+
+/* ── Update banner ── */
+.update-banner{display:none;padding:8px 18px;font-size:12px;font-weight:500;letter-spacing:.02em;align-items:center;justify-content:center;gap:10px;animation:slideUp .4s ease}
+.update-banner.available{background:rgba(245,200,66,0.12);border-bottom:1px solid rgba(245,200,66,0.25);color:var(--gold);display:flex}
+.update-banner.ready{background:rgba(34,197,94,0.1);border-bottom:1px solid rgba(34,197,94,0.2);color:#22c55e;display:flex}
+.update-banner.checking{background:var(--surf);border-bottom:1px solid var(--bdr);color:var(--txt2);display:flex}
+.upd-btn{padding:3px 12px;border-radius:20px;border:1px solid currentColor;background:transparent;color:inherit;font-size:10px;font-weight:700;letter-spacing:.1em;cursor:pointer;font-family:'Inter',sans-serif;opacity:.85;transition:opacity .2s}
+.upd-btn:hover{opacity:1}
+.upd-progress{font-size:11px;opacity:.7}
+
+/* ── Header ── */
+.header{padding:15px 22px 12px;background:var(--bg2);border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;position:relative;z-index:10;animation:slideUp .5s cubic-bezier(0.34,1.56,0.64,1) 2.6s both}
+.header-brand{display:flex;flex-direction:column;gap:3px}
+.logo-sub{font-size:10px;color:var(--txt2);letter-spacing:.18em;text-transform:uppercase;font-weight:500}
+.header-actions{display:flex;align-items:center;gap:6px}
+.header-loc{font-size:10px;color:var(--txt3);letter-spacing:.2em;text-transform:uppercase;font-weight:500;margin-right:4px}
+.icon-btn{width:34px;height:34px;border-radius:var(--rx);background:transparent;border:1px solid var(--bdr);display:flex;align-items:center;justify-content:center;color:var(--txt2);cursor:pointer;transition:all .18s}
+.icon-btn:hover{background:var(--surf-h);color:var(--txt);border-color:var(--bdr2)}
+.icon-btn svg{width:15px;height:15px;flex-shrink:0}
+
+/* ── Main ── */
+.main{padding:18px 16px 32px;display:flex;flex-direction:column;gap:12px;max-width:600px;margin:0 auto;position:relative;z-index:2}
+.s-label{font-size:10px;font-weight:600;color:var(--txt2);text-transform:uppercase;letter-spacing:.18em;margin-bottom:11px}
+
+/* ── Cards ── */
+.card{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);padding:18px;box-shadow:var(--shd);position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:20%;right:20%;height:1px;background:linear-gradient(90deg,transparent,rgba(224,49,58,0.3),transparent)}
+.card:nth-child(1){animation:springUp .5s cubic-bezier(0.34,1.56,0.64,1) 2.7s both}
+.card:nth-child(2){animation:springUp .5s cubic-bezier(0.34,1.56,0.64,1) 2.82s both}
+
+/* ── Drop zone ── */
+.drop-zone{border:1.5px dashed var(--bdr2);border-radius:var(--rs);padding:28px 20px;text-align:center;cursor:pointer;transition:all .25s;position:relative;background:var(--surf)}
+.drop-zone:hover{border-color:var(--red);background:rgba(224,49,58,0.04);transform:scale(1.005)}
+.dz-icon{width:40px;height:40px;margin:0 auto 10px;background:rgba(224,49,58,0.1);border-radius:10px;display:flex;align-items:center;justify-content:center}
+.dz-icon svg{color:var(--red)}
+.drop-title{font-family:'Bebas Neue',sans-serif;font-size:18px;color:var(--txt);letter-spacing:.04em;margin-bottom:4px}
+.drop-sub{font-size:12px;color:var(--txt2)}
+
+/* ── File loaded ── */
+.file-loaded{display:flex;align-items:center;gap:12px;padding:11px 14px;background:rgba(224,49,58,0.06);border-radius:var(--rs);border:1px solid rgba(224,49,58,0.2)}
+.file-icon-box{width:36px;height:36px;background:rgba(224,49,58,0.12);border-radius:var(--rx);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.file-name{font-size:14px;font-weight:600;color:var(--txt)}
+.file-meta{font-size:11px;color:var(--txt2);margin-top:1px}
+.btn-3d{margin-left:auto;padding:6px 13px;border-radius:var(--rx);border:1px solid rgba(224,49,58,0.4);background:transparent;color:var(--red);font-size:11px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;letter-spacing:.06em;text-transform:uppercase;transition:all .2s;white-space:nowrap}
+.btn-3d:hover{background:var(--red);color:#fff;transform:translateY(-1px)}
+.remove-btn{background:none;border:none;cursor:pointer;font-size:16px;color:var(--txt2);padding:5px 7px;border-radius:6px;transition:all .15s;line-height:1;display:flex;align-items:center}
+.remove-btn:hover{color:var(--red);background:rgba(224,49,58,0.1)}
+
+/* ── Field ── */
+.field label{display:block;font-size:10px;color:var(--txt2);margin-bottom:7px;letter-spacing:.14em;text-transform:uppercase;font-weight:600}
+.field input{width:100%;height:42px;background:var(--inp);border:1px solid var(--inp-bdr);border-radius:var(--rx);padding:0 14px;font-size:15px;color:var(--txt);font-family:'Inter',sans-serif;outline:none;transition:border-color .2s,box-shadow .2s}
+.field input:focus{border-color:var(--red);box-shadow:0 0 0 3px rgba(224,49,58,0.12)}
+
+/* ── Filaments ── */
+.filamentos{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.fil-card{border:1px solid var(--bdr);border-radius:var(--rs);padding:13px 14px;cursor:pointer;background:var(--surf);transition:all .22s cubic-bezier(0.34,1.56,0.64,1);position:relative;overflow:hidden}
+.fil-card:hover{transform:scale(1.025) translateY(-1px);box-shadow:var(--shd);border-color:var(--bdr2)}
+.fil-card.selected{border-color:var(--red);background:rgba(224,49,58,0.07);box-shadow:0 0 0 1px var(--red)}
+.fil-card.selected::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--red)}
+.fil-nombre{font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--txt);letter-spacing:.04em;margin-bottom:3px}
+.fil-desc{font-size:10px;color:var(--txt2);line-height:1.4}
+.fil-precio{font-family:'Bebas Neue',sans-serif;font-size:15px;color:var(--red);margin-top:9px}
+.custom-input{width:100%;margin-top:7px;height:30px;border:1px solid var(--bdr);border-radius:6px;padding:0 9px;font-size:12px;background:var(--inp);color:var(--txt);display:none;outline:none;transition:border-color .2s}
+.custom-input:focus{border-color:var(--red)}
+
+/* ── Supports toggle ── */
+.supports-row{display:flex;align-items:center;justify-content:space-between;padding:13px 0 0;border-top:1px solid var(--bdr);margin-top:13px}
+.supports-info p{font-size:14px;font-weight:500;color:var(--txt)}
+.supports-info small{font-size:11px;color:var(--txt2)}
+.toggle-input{opacity:0;width:0;height:0;position:absolute}
+.toggle-label{display:block;width:44px;height:26px;background:var(--bdr2);border-radius:13px;cursor:pointer;transition:background .22s;position:relative}
+.toggle-label::after{content:'';position:absolute;width:20px;height:20px;background:#fff;border-radius:50%;top:3px;left:3px;transition:transform .22s cubic-bezier(0.34,1.56,0.64,1);box-shadow:0 1px 5px rgba(0,0,0,0.3)}
+.toggle-input:checked+.toggle-label{background:var(--red)}
+.toggle-input:checked+.toggle-label::after{transform:translateX(18px)}
+
+/* ── Process btn ── */
+.btn-process{width:100%;height:52px;background:var(--red);color:#fff;border:none;border-radius:var(--rs);font-size:15px;font-weight:700;cursor:pointer;font-family:'Bebas Neue',sans-serif;letter-spacing:.18em;transition:all .2s;animation:springUp .5s cubic-bezier(0.34,1.56,0.64,1) 3s both;box-shadow:0 4px 18px rgba(224,49,58,0.35)}
+.btn-process:hover{background:var(--red-h);transform:translateY(-2px);box-shadow:0 6px 24px rgba(224,49,58,0.45)}
+.btn-process:disabled{background:var(--txt3);cursor:not-allowed;transform:none;box-shadow:none}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:8px}
+.progress-msg{text-align:center;font-size:12px;color:var(--txt2);margin-top:8px;display:none;animation:pulse 1.5s ease infinite;letter-spacing:.05em}
+
+/* ── Result ── */
+.result{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);overflow:hidden;display:none;box-shadow:var(--shd);animation:springUp .5s cubic-bezier(0.34,1.56,0.64,1) both}
+.result-header{padding:14px 20px;background:var(--red);display:flex;align-items:center;gap:10px}
+.result-header h3{font-family:'Bebas Neue',sans-serif;font-size:17px;letter-spacing:.1em;color:#fff}
+.result-badge{margin-left:auto;font-size:9px;padding:3px 11px;background:rgba(0,0,0,0.2);border-radius:20px;color:rgba(255,255,255,0.65);letter-spacing:.08em;font-weight:600;text-transform:uppercase}
+.metrics{display:grid;grid-template-columns:1fr 1fr}
+.metric{padding:18px;text-align:center;border-right:1px solid var(--bdr);border-bottom:1px solid var(--bdr)}
+.metric:last-child{border-right:none}
+.metric .val{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--txt);letter-spacing:.04em}
+.metric .lbl{font-size:9px;color:var(--txt2);margin-top:3px;letter-spacing:.18em;text-transform:uppercase;font-weight:600}
+.price-box{padding:24px 20px;text-align:center;border-bottom:1px solid var(--bdr)}
+.price{font-family:'Bebas Neue',sans-serif;font-size:56px;color:var(--gold);letter-spacing:-1px;line-height:1}
+.price-label{font-size:11px;color:var(--txt2);margin-top:5px;letter-spacing:.04em}
+.disclaimer{padding:10px 18px;font-size:10px;color:var(--txt2);line-height:1.6;background:rgba(255,200,66,0.04);border-bottom:1px solid var(--bdr);display:flex;gap:7px;align-items:flex-start}
+.disclaimer-icon{flex-shrink:0;margin-top:1px;color:var(--gold)}
+.export-row{display:flex;gap:8px;padding:12px 16px}
+.btn-exp{flex:1;height:38px;border-radius:var(--rx);border:1px solid var(--bdr2);background:transparent;color:var(--txt2);font-size:11px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;letter-spacing:.05em;text-transform:uppercase;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .2s}
+.btn-exp:hover{border-color:var(--red);color:var(--red);transform:translateY(-1px)}
+.btn-exp svg{width:13px;height:13px;flex-shrink:0}
+
+/* ── Footer ── */
+.footer{text-align:center;padding:16px;animation:springUp .5s cubic-bezier(0.34,1.56,0.64,1) 3.1s both}
+.footer-link{font-size:10px;color:var(--txt3);letter-spacing:.12em;text-transform:uppercase;text-decoration:none;transition:color .2s;cursor:pointer;background:none;border:none;font-family:'Inter',sans-serif}
+.footer-link:hover{color:var(--txt2)}
+.hidden{display:none!important}
+
+/* ── Modal base ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.65);backdrop-filter:blur(8px);z-index:6000;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex;animation:fadeIn .2s ease}
+
+/* ── Password modal ── */
+.pwd-modal{background:var(--bg2);border:1px solid var(--bdr);border-radius:20px;padding:28px 26px;width:100%;max-width:320px;box-shadow:0 24px 60px rgba(0,0,0,0.5);text-align:center;animation:springUp .4s cubic-bezier(0.34,1.56,0.64,1)}
+.pwd-icon{width:52px;height:52px;background:rgba(224,49,58,0.1);border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+.pwd-icon svg{color:var(--red)}
+.pwd-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:.06em;margin-bottom:6px}
+.pwd-sub{font-size:12px;color:var(--txt2);margin-bottom:20px;line-height:1.5}
+.pwd-input{width:100%;height:44px;background:var(--inp);border:1px solid var(--inp-bdr);border-radius:var(--rx);padding:0 14px;font-size:15px;color:var(--txt);text-align:center;letter-spacing:.1em;outline:none;transition:border-color .2s,box-shadow .2s;margin-bottom:8px}
+.pwd-input:focus{border-color:var(--red);box-shadow:0 0 0 3px rgba(224,49,58,0.12)}
+.pwd-error{display:none;font-size:11px;color:var(--red);margin-bottom:10px}
+.pwd-btn{width:100%;height:44px;background:var(--red);color:#fff;border:none;border-radius:var(--rx);font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:.15em;cursor:pointer;transition:all .2s;box-shadow:0 4px 14px rgba(224,49,58,0.3)}
+.pwd-btn:hover{background:var(--red-h);transform:translateY(-1px)}
+.pwd-cancel{display:block;margin-top:10px;font-size:12px;color:var(--txt2);cursor:pointer;background:none;border:none;font-family:'Inter',sans-serif;transition:color .2s;width:100%}
+.pwd-cancel:hover{color:var(--txt)}
+
+/* ── Settings modal ── */
+.settings-modal{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);width:100%;max-width:500px;max-height:88vh;overflow-y:auto;box-shadow:0 24px 60px rgba(0,0,0,0.5);animation:springUp .4s cubic-bezier(0.34,1.56,0.64,1)}
+.settings-modal::-webkit-scrollbar{width:4px}
+.settings-modal::-webkit-scrollbar-thumb{background:var(--bdr2);border-radius:2px}
+.modal-head{padding:20px 22px 16px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg2);z-index:1}
+.modal-head h2{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:.08em}
+.modal-close{background:none;border:none;cursor:pointer;color:var(--txt2);width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:18px;transition:all .15s}
+.modal-close:hover{background:var(--surf-h);color:var(--txt)}
+.modal-body{padding:16px 22px 20px}
+.cfg-section{font-size:9px;font-weight:700;color:var(--txt2);text-transform:uppercase;letter-spacing:.2em;margin:18px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--bdr)}
+.cfg-section:first-child{margin-top:0}
+.cfg-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cfg-field label{display:block;font-size:9px;color:var(--txt2);margin-bottom:5px;letter-spacing:.12em;text-transform:uppercase;font-weight:600}
+.cfg-field input{width:100%;height:38px;background:var(--inp);border:1px solid var(--inp-bdr);border-radius:var(--rx);padding:0 11px;font-size:13px;color:var(--txt);font-family:'Inter',sans-serif;outline:none;transition:border-color .2s}
+.cfg-field input:focus{border-color:var(--red)}
+.mat-header{display:grid;grid-template-columns:1fr 1.5fr 88px 28px;gap:5px;margin-bottom:6px}
+.mat-header span{font-size:8px;color:var(--txt2);text-transform:uppercase;letter-spacing:.12em;padding:0 2px;font-weight:600}
+.mat-row{display:grid;grid-template-columns:1fr 1.5fr 88px 28px;gap:5px;align-items:center;margin-bottom:6px}
+.mat-input{height:33px;background:var(--inp);border:1px solid var(--inp-bdr);border-radius:6px;padding:0 9px;font-size:11px;color:var(--txt);font-family:'Inter',sans-serif;outline:none;width:100%;transition:border-color .2s}
+.mat-input:focus{border-color:var(--red)}
+.mat-del{height:28px;width:28px;background:none;border:1px solid var(--bdr2);border-radius:5px;color:var(--txt2);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;padding:0}
+.mat-del:hover{background:rgba(224,49,58,0.1);color:var(--red);border-color:var(--red)}
+.btn-add-mat{display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:var(--rx);border:1px dashed var(--bdr2);background:none;color:var(--txt2);font-size:11px;cursor:pointer;font-family:'Inter',sans-serif;margin-top:6px;transition:all .2s}
+.btn-add-mat:hover{border-color:var(--red);color:var(--red)}
+.modal-footer{padding:14px 22px;border-top:1px solid var(--bdr);display:flex;gap:8px;position:sticky;bottom:0;background:var(--bg2)}
+.btn-save{flex:1;height:42px;background:var(--red);color:#fff;border:none;border-radius:var(--rx);font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:.15em;cursor:pointer;transition:all .2s;box-shadow:0 4px 14px rgba(224,49,58,0.3)}
+.btn-save:hover{background:var(--red-h);transform:translateY(-1px)}
+.btn-cancel-modal{height:42px;padding:0 18px;background:transparent;border:1px solid var(--bdr);border-radius:var(--rx);font-size:12px;color:var(--txt2);cursor:pointer;font-family:'Inter',sans-serif;transition:all .2s}
+.btn-cancel-modal:hover{border-color:var(--bdr2);color:var(--txt)}
+
+/* ── License screen ── */
+#licenseScreen{display:none;position:fixed;inset:0;background:#080808;z-index:9999;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+.lic-close-btn{position:absolute;top:18px;right:18px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);color:#888;width:32px;height:32px;border-radius:8px;display:none;align-items:center;justify-content:center;cursor:pointer;font-size:16px;transition:all .2s}
+.lic-close-btn:hover{background:rgba(255,255,255,0.12);color:#fff}
+.lic-logo{opacity:.1;margin-bottom:28px}
+.lic-box{background:#111;border:1px solid #1e1e1e;border-radius:22px;padding:34px 28px;max-width:360px;width:100%;text-align:center;position:relative;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,0.7)}
+.lic-box::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#E0313A,transparent)}
+.lic-tag{font-family:'Bebas Neue',sans-serif;font-size:10px;letter-spacing:.4em;color:#222;margin-bottom:18px}
+.lic-icon{width:52px;height:52px;background:#150808;border:1px solid #2a1010;border-radius:14px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+.lic-title{font-family:'Bebas Neue',sans-serif;font-size:28px;color:#f5f5f7;letter-spacing:.04em;margin-bottom:8px}
+.lic-sub{font-size:13px;color:#555;line-height:1.7;margin-bottom:24px}
+.lic-sub strong{color:#888}
+.lic-input{width:100%;padding:13px;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:11px;font-size:14px;color:#f5f5f7;text-align:center;letter-spacing:.1em;outline:none;margin-bottom:8px;font-family:'Inter',sans-serif;transition:border-color .2s}
+.lic-input:focus{border-color:#E0313A}
+.lic-input::placeholder{color:#333;letter-spacing:.15em}
+.lic-error{display:none;font-size:11px;color:#E0313A;margin-bottom:8px;letter-spacing:.03em}
+.lic-btn{width:100%;padding:14px;background:#E0313A;color:#fff;border:none;border-radius:11px;font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:.15em;cursor:pointer;margin-bottom:20px;transition:background .2s;box-shadow:0 4px 18px rgba(224,49,58,0.4)}
+.lic-btn:hover{background:#c4272f}
+.lic-divider{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.lic-divider-line{flex:1;height:1px;background:#1a1a1a}
+.lic-divider-text{font-size:9px;color:#222;letter-spacing:.2em}
+.wa-btn{display:flex;align-items:center;gap:12px;padding:13px 14px;background:#0a1a0a;border:1px solid #1a3020;border-radius:13px;cursor:pointer;text-decoration:none;transition:all .2s}
+.wa-btn:hover{background:#0f2510;border-color:#25d366}
+.wa-icon{width:36px;height:36px;background:#0d2a0d;border-radius:9px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.wa-title{font-size:13px;color:#25d366;font-weight:600;text-align:left}
+.wa-num{font-size:11px;color:#1a5020;text-align:left;margin-top:1px}
+.wa-arrow{margin-left:auto;color:#1a3a1a;font-size:18px}
+.lic-footer{font-size:9px;color:#1a1a1a;margin-top:18px;letter-spacing:.15em}
+</style>
+</head>
+<body>
+
+<!-- Intro -->
+<div class="intro" id="intro">
+  <canvas id="introCanvas"></canvas>
+  <div class="intro-content">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 340" style="height:64px;width:auto;fill:#fff"><path d="M158.11,218.39h-36.2v101.96h-30.53v-101.91h-36.13c0,2.77.02,5.22,0,7.67-.17,18.08.25,36.19-.68,54.23-1.23,23.81-16.22,38.89-39.87,41.54-4.72.53-9.46.89-14.65,1.38v-28.41c3.68-.61,7.42-1.04,11.08-1.86,7.9-1.77,12.94-6.64,13.12-14.67.43-19.78.14-39.57.14-60.09H0v-26.29h187.97v128.6h-29.87v-102.15Z"/><path d="M164.61,46.37c.42,19.53-4.07,37.09-15.49,53.74h15.5c.34,21.42-4.16,40.55-17.75,56.56-20.74,24.42-48.95,26.8-78.74,25.81v-27.19c9.72-.63,19.4-.8,28.96-1.98,19.15-2.36,33.02-17.53,33.37-35.79-7.31,2.58-14.44,6.37-21.95,7.47-12.93,1.89-26.1,2.39-39.19,2.86-4.2.15-5.97,1.48-7.35,5.26-5.64,15.46-13.45,29.56-26.63,39.98-10.23,8.09-22.01,11.54-35.34,11.74v-32.22c18.28-1.62,26.88-14.55,31.72-30.02,4.81-15.38,7.64-31.37,11.6-48.18H.1v-28.04h164.5ZM71.2,99.84c25.62,2.71,51.98-3.46,57.96-25.74-17.25,0-34.37-.08-51.48.16-1.27.02-3.4,2.11-3.63,3.49-1.2,7.16-1.91,14.4-2.85,22.09Z"/><path d="M178.85,185.52v-32.99c15.75-1.3,24.01-11.53,29.76-24.64,7.4-16.88,9.99-34.82,12.02-53.57h-41.61v-27.9h161.29c3.36,22.21-4.4,62.6-42.28,80,7.8,18.97,23.4,25,42.71,25.99v32.44c-20.02-.38-38.29-5.18-53.65-18.63-9.02-7.9-15.67-17.52-19.54-28.88-1.21-3.56-3.07-4.08-6.48-4.57-13.6-1.97-22.11,1.49-27.71,15.96-6.38,16.47-19.4,28.39-37.04,33.57-5.35,1.57-11.02,2.07-17.46,3.22ZM253.54,74.44c-1.54,10.38-2.98,20.11-4.41,29.83,29.79,4.7,57.4-9.65,57.94-29.83h-53.53Z"/><path d="M467.12,46.28h32.38v136.07h-32.14v-30.42c-2.81,2.44-4.58,3.97-6.33,5.51-18.79,16.41-40.97,24.1-65.53,25.06-13.1.51-26.24.09-39.84.09v-27.72h25.05c.13-2.33.33-4.25.33-6.18.02-16.87.04-33.74,0-50.61-.03-16.94-5.35-22.66-22.08-23.84-.99-.07-1.98-.18-3.37-.31v-29.14c24.14-6.7,53.47,12.57,56.5,38.22,1.68,14.25,1.2,28.76,1.53,43.16.19,8.11.03,16.23.03,24.99,1.92-.32,3.45-.37,4.85-.83,28.08-9.39,47.34-35.22,48.52-65.71.49-12.54.08-25.12.08-38.35Z"/><path d="M206.44,323.06v-28.29c2.88-.58,5.49-1.05,8.07-1.64,6.5-1.51,10.37-5.71,11.29-12.24.64-4.54.77-9.18.8-13.78.09-16.11.03-32.21.03-48.95h-20.16v-26.22h130.04v26h-79.01v20.95h65.26v26.27h-65.54c-.03,18.64-.8,36.68-17.16,48.77-9.83,7.27-21.36,8.66-33.63,9.13Z"/><path d="M500,322.72c-50.92.04-104.64-23.82-124.5-88.47h-23.8v-26.27h18.86c-.32-5.73-.59-10.64-.89-16.02h30.3c.5,4.87,1.02,9.95,1.6,15.62h84.73v26.29h-77.36c5.52,30.83,42.69,54.54,91.08,58.35v30.49Z"/><path d="M257.33,319.77v-25.5c10.6,0,20.88,0,31.15,0,2.87,0,5.74.05,8.61-.03,10.29-.3,13.88-3.47,15.65-13.7.16-.92.39-1.82.61-2.84h29.21c2.57,20.51-12.05,40.29-32.4,41.81-17.29,1.3-34.75.27-52.85.27Z"/></svg>
+    <div class="intro-sub">Cotizador de Impresion 3D</div>
+    <div class="intro-bar"><div class="intro-bar-fill"></div></div>
+  </div>
+</div>
+
+<!-- License -->
+<div id="licenseScreen">
+  <button class="lic-close-btn" id="licCloseBtn" onclick="closeLicenseOverlay()">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>
+  <div class="lic-logo">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 340" style="height:28px;width:auto;fill:#fff"><path d="M158.11,218.39h-36.2v101.96h-30.53v-101.91h-36.13c0,2.77.02,5.22,0,7.67-.17,18.08.25,36.19-.68,54.23-1.23,23.81-16.22,38.89-39.87,41.54-4.72.53-9.46.89-14.65,1.38v-28.41c3.68-.61,7.42-1.04,11.08-1.86,7.9-1.77,12.94-6.64,13.12-14.67.43-19.78.14-39.57.14-60.09H0v-26.29h187.97v128.6h-29.87v-102.15Z"/></svg>
+  </div>
+  <div class="lic-box">
+    <div class="lic-tag">// Brumet Slicer v1.0</div>
+    <div class="lic-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E0313A" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+    <div class="lic-title" id="licenseMsg">Licencia Vencida</div>
+    <div class="lic-sub" id="lic-sub-text">Tu periodo de prueba de <strong>30 dias</strong> ha terminado.<br>Ingresa tu codigo o contactanos.</div>
+    <input class="lic-input" id="licenseInput" type="text" placeholder="BRUMET-XXXX-XXXX" onkeydown="if(event.key==='Enter')tryActivate()">
+    <div class="lic-error" id="licenseError">Codigo invalido o ya utilizado.</div>
+    <button class="lic-btn" onclick="tryActivate()">Activar Licencia</button>
+    <div class="lic-divider"><div class="lic-divider-line"></div><div class="lic-divider-text">O Contactanos</div><div class="lic-divider-line"></div></div>
+    <a class="wa-btn" href="https://wa.me/573106078712?text=Hola%20Brumet%2C%20necesito%20activar%20mi%20licencia" target="_blank">
+      <div class="wa-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="#25d366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></div>
+      <div><div class="wa-title">Pedir codigo por WhatsApp</div><div class="wa-num">310 607 8712 · Brumet</div></div>
+      <div class="wa-arrow">›</div>
+    </a>
+    <div class="lic-footer">Brumet.co · Bogota, Colombia · 3D Studio</div>
+  </div>
+</div>
+
+<!-- Trial banner -->
+<div id="trialBanner">
+  <span>Periodo de prueba: <strong><span id="trialDays"></span> dias restantes</strong></span>
+  <span style="opacity:.4">·</span>
+  <span>WhatsApp <a href="https://wa.me/573106078712" target="_blank">310 607 8712</a></span>
+  <button class="trial-activate" onclick="showLicenseOverlay()">Activar →</button>
+</div>
+
+<!-- App -->
+<div class="app" id="mainApp" style="display:none">
+
+  <!-- Update banner -->
+  <div class="update-banner" id="updateBanner">
+    <span id="updateMsg"></span>
+    <button class="upd-btn" id="updateBtn" style="display:none" onclick="handleUpdateBtn()"></button>
+  </div>
+
+  <div class="header">
+    <div class="header-brand">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 340" style="height:26px;width:auto;fill:var(--red)"><path d="M158.11,218.39h-36.2v101.96h-30.53v-101.91h-36.13c0,2.77.02,5.22,0,7.67-.17,18.08.25,36.19-.68,54.23-1.23,23.81-16.22,38.89-39.87,41.54-4.72.53-9.46.89-14.65,1.38v-28.41c3.68-.61,7.42-1.04,11.08-1.86,7.9-1.77,12.94-6.64,13.12-14.67.43-19.78.14-39.57.14-60.09H0v-26.29h187.97v128.6h-29.87v-102.15Z"/><path d="M164.61,46.37c.42,19.53-4.07,37.09-15.49,53.74h15.5c.34,21.42-4.16,40.55-17.75,56.56-20.74,24.42-48.95,26.8-78.74,25.81v-27.19c9.72-.63,19.4-.8,28.96-1.98,19.15-2.36,33.02-17.53,33.37-35.79-7.31,2.58-14.44,6.37-21.95,7.47-12.93,1.89-26.1,2.39-39.19,2.86-4.2.15-5.97,1.48-7.35,5.26-5.64,15.46-13.45,29.56-26.63,39.98-10.23,8.09-22.01,11.54-35.34,11.74v-32.22c18.28-1.62,26.88-14.55,31.72-30.02,4.81-15.38,7.64-31.37,11.6-48.18H.1v-28.04h164.5ZM71.2,99.84c25.62,2.71,51.98-3.46,57.96-25.74-17.25,0-34.37-.08-51.48.16-1.27.02-3.4,2.11-3.63,3.49-1.2,7.16-1.91,14.4-2.85,22.09Z"/><path d="M178.85,185.52v-32.99c15.75-1.3,24.01-11.53,29.76-24.64,7.4-16.88,9.99-34.82,12.02-53.57h-41.61v-27.9h161.29c3.36,22.21-4.4,62.6-42.28,80,7.8,18.97,23.4,25,42.71,25.99v32.44c-20.02-.38-38.29-5.18-53.65-18.63-9.02-7.9-15.67-17.52-19.54-28.88-1.21-3.56-3.07-4.08-6.48-4.57-13.6-1.97-22.11,1.49-27.71,15.96-6.38,16.47-19.4,28.39-37.04,33.57-5.35,1.57-11.02,2.07-17.46,3.22Z"/><path d="M467.12,46.28h32.38v136.07h-32.14v-30.42c-2.81,2.44-4.58,3.97-6.33,5.51-18.79,16.41-40.97,24.1-65.53,25.06-13.1.51-26.24.09-39.84.09v-27.72h25.05c.13-2.33.33-4.25.33-6.18.02-16.87.04-33.74,0-50.61-.03-16.94-5.35-22.66-22.08-23.84-.99-.07-1.98-.18-3.37-.31v-29.14c24.14-6.7,53.47,12.57,56.5,38.22,1.68,14.25,1.2,28.76,1.53,43.16.19,8.11.03,16.23.03,24.99,1.92-.32,3.45-.37,4.85-.83,28.08-9.39,47.34-35.22,48.52-65.71.49-12.54.08-25.12.08-38.35Z"/><path d="M206.44,323.06v-28.29c2.88-.58,5.49-1.05,8.07-1.64,6.5-1.51,10.37-5.71,11.29-12.24.64-4.54.77-9.18.8-13.78.09-16.11.03-32.21.03-48.95h-20.16v-26.22h130.04v26h-79.01v20.95h65.26v26.27h-65.54c-.03,18.64-.8,36.68-17.16,48.77-9.83,7.27-21.36,8.66-33.63,9.13Z"/></svg>
+      <div class="logo-sub">Cotizador de Impresion 3D · Bamboo A1</div>
+    </div>
+    <div class="header-actions">
+      <span class="header-loc">Bogota · CO</span>
+      <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="Cambiar tema" aria-label="Cambiar tema">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
+      <button class="icon-btn" id="updateIconBtn" onclick="checkUpdatesManual()" title="Buscar actualizaciones" aria-label="Actualizaciones" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
+      </button>
+      <button class="icon-btn" onclick="openSettings()" title="Configurar costos" aria-label="Configuracion">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="card">
+      <div class="s-label">Modelo 3D</div>
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <div class="dz-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
+        <div class="drop-title">Arrastra tu modelo aqui</div>
+        <div class="drop-sub">STL · OBJ · 3MF compatibles</div>
+      </div>
+      <div class="file-loaded hidden" id="fileLoaded">
+        <div class="file-icon-box"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#E0313A" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
+        <div style="flex:1;min-width:0"><div class="file-name" id="fileName">modelo.stl</div><div class="file-meta" id="fileSize">0 MB</div></div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+          <button class="btn-3d" onclick="abrirVisor()">Ver en 3D</button>
+          <button class="remove-btn" onclick="removeFile()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </div>
+      </div>
+      <input type="file" id="fileInput" accept=".stl,.obj,.3mf" class="hidden" onchange="handleFile(this)">
+    </div>
+
+    <div class="card">
+      <div class="s-label">Configuracion</div>
+      <div class="field" style="margin-bottom:16px">
+        <label>Altura del modelo (mm)</label>
+        <input type="number" id="altura" placeholder="Ej: 100" min="1" max="256" value="100">
+      </div>
+      <div class="s-label">Tipo de filamento</div>
+      <div class="filamentos" id="filamentosContainer"></div>
+      <div class="supports-row">
+        <div class="supports-info"><p>Soportes automaticos</p><small>Se generan si el modelo los necesita</small></div>
+        <div><input type="checkbox" id="supports" class="toggle-input" checked><label for="supports" class="toggle-label"></label></div>
+      </div>
+    </div>
+
+    <button class="btn-process" id="btnProcess" onclick="procesar()">Calcular Cotizacion</button>
+    <div class="progress-msg" id="progressMsg">Procesando modelo... puede tardar 1-2 minutos</div>
+
+    <div class="result" id="result">
+      <div class="result-header">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        <h3>Cotizacion Lista</h3>
+        <div class="result-badge" id="resMaterialBadge">Brumet · Bamboo A1</div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="val" id="resTiempo">—</div><div class="lbl">Tiempo estimado</div></div>
+        <div class="metric"><div class="val" id="resGramos">—</div><div class="lbl">Filamento usado</div></div>
+      </div>
+      <div class="price-box">
+        <div class="price" id="resPrice">$0</div>
+        <div class="price-label">Valor estimado en pesos colombianos</div>
+      </div>
+      <div class="disclaimer">
+        <svg class="disclaimer-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span>Precio estimado sujeto a verificacion antes de confirmar la impresion. El valor final puede variar segun la complejidad real del modelo.</span>
+      </div>
+      <div class="export-row">
+        <button class="btn-exp" onclick="exportarPDF()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Exportar PDF
+        </button>
+        <button class="btn-exp" onclick="exportarCSV()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          Exportar Excel
+        </button>
+      </div>
+    </div>
+
+    <div class="footer">
+      <button class="footer-link" onclick="require('electron').shell.openExternal('https://www.instagram.com/brumet.co/')">DESARROLLADO POR BRUMET · @BRUMET.CO</button>
+    </div>
+  </div>
+</div>
+
+<!-- Password modal -->
+<div class="modal-overlay" id="passwordModal" onclick="if(event.target===this)closePwdModal()">
+  <div class="pwd-modal">
+    <div class="pwd-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+    <div class="pwd-title">Zona Restringida</div>
+    <div class="pwd-sub">Esta seccion contiene los parametros de costeo.<br>Solo el administrador puede acceder.</div>
+    <input class="pwd-input" id="pwdInput" type="password" placeholder="Contrasena" onkeydown="if(event.key==='Enter')checkPassword()">
+    <div class="pwd-error" id="pwdError">Contrasena incorrecta. Intenta de nuevo.</div>
+    <button class="pwd-btn" onclick="checkPassword()">Confirmar</button>
+    <button class="pwd-cancel" onclick="closePwdModal()">Cancelar</button>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal-overlay" id="settingsModal" onclick="if(event.target===this)closeSettings()">
+  <div class="settings-modal">
+    <div class="modal-head">
+      <h2>Configuracion de Costos</h2>
+      <button class="modal-close" onclick="closeSettings()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <div class="cfg-section">Energia y consumo</div>
+      <div class="cfg-grid">
+        <div class="cfg-field"><label>Potencia impresora (W)</label><input type="number" id="cfg-energiaW" placeholder="225"></div>
+        <div class="cfg-field"><label>Tarifa electrica (COP/kWh)</label><input type="number" id="cfg-tarifaEnergia" placeholder="1000"></div>
+      </div>
+      <div class="cfg-section">Desgaste de maquina</div>
+      <div class="cfg-grid">
+        <div class="cfg-field"><label>Costo total maquina (COP)</label><input type="number" id="cfg-desgasteTotal" placeholder="3000000"></div>
+        <div class="cfg-field"><label>Vida util (horas)</label><input type="number" id="cfg-horasDesgaste" placeholder="74627"></div>
+      </div>
+      <div class="cfg-section">Costos por hora (COP/h)</div>
+      <div class="cfg-grid">
+        <div class="cfg-field"><label>Operario</label><input type="number" id="cfg-operarioPorHora" placeholder="600"></div>
+        <div class="cfg-field"><label>Espacio / arrendamiento</label><input type="number" id="cfg-espacioPorHora" placeholder="350"></div>
+      </div>
+      <div class="cfg-section">Costos fijos por impresion (COP)</div>
+      <div class="cfg-grid">
+        <div class="cfg-field"><label>Montaje y preparacion</label><input type="number" id="cfg-costoMontaje" placeholder="2500"></div>
+        <div class="cfg-field"><label>Post-procesado</label><input type="number" id="cfg-costoMaquinado" placeholder="1000"></div>
+      </div>
+      <div class="cfg-section">Multiplicador de precio</div>
+      <div class="cfg-grid">
+        <div class="cfg-field"><label>Margen adicional (%)</label><input type="number" id="cfg-margenPct" placeholder="0" step="0.5"></div>
+        <div class="cfg-field"><label>Multiplicador (x2 = doble del costo)</label><input type="number" id="cfg-markup" placeholder="2.0" step="0.1"></div>
+      </div>
+      <div class="cfg-section">Materiales / perfiles de filamento</div>
+      <div class="mat-header"><span>Nombre</span><span>Descripcion</span><span>$/kg</span><span></span></div>
+      <div id="matRows"></div>
+      <button class="btn-add-mat" onclick="addMaterial()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Agregar material</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel-modal" onclick="closeSettings()">Cancelar</button>
+      <button class="btn-save" onclick="saveSettings()">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron')
+let currentFilePath = null, precioKG = 70000, viewerDims = null, lastResult = null
+let selectedFilNombre = 'Básico', licenseIsOverlay = false
+
+let cfg = {
+  energiaW:225, tarifaEnergia:1000, desgasteTotal:3000000, horasDesgaste:74627,
+  operarioPorHora:600, espacioPorHora:350, costoMontaje:2500, costoMaquinado:1000,
+  margenPct:0, markup:2.0,
+  filamentos:[
+    {nombre:'Básico',desc:'Blanco, negro, colores sólidos simples',precio:70000},
+    {nombre:'Premium',desc:'Galaxia, tornasol, escarchado, mármol',precio:85000},
+    {nombre:'Ultra Premium',desc:'TPU, PETG, ABS, fibra de carbono',precio:110000}
+  ]
+}
+
+// ── Theme ──────────────────────────────────────────────────────────────────
+let userTheme = localStorage.getItem('brumet-theme') || 'system'
+
+function isDarkMode() {
+  const t = document.documentElement.getAttribute('data-theme')
+  if (t === 'dark') return true
+  if (t === 'light') return false
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
+function updateThemeIcon() {
+  const icon = document.getElementById('themeIcon')
+  if (!icon) return
+  if (isDarkMode()) {
+    icon.innerHTML = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>'
+  } else {
+    icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>'
+  }
+}
+
+function applyTheme(t) {
+  userTheme = t
+  localStorage.setItem('brumet-theme', t)
+  if (t === 'system') document.documentElement.removeAttribute('data-theme')
+  else document.documentElement.setAttribute('data-theme', t)
+  updateThemeIcon()
+  if (typeof pts !== 'undefined') {
+    const c = isDarkMode() ? '#F5C842' : '#E0313A'
+    pts.forEach(p => { p.c = c })
+  }
+}
+
+function toggleTheme() { applyTheme(isDarkMode() ? 'light' : 'dark') }
+
+// ── Intro sphere ───────────────────────────────────────────────────────────
+const introCanvas = document.getElementById('introCanvas')
+const ctx = introCanvas.getContext('2d')
+function resizeIntro() { introCanvas.width = window.innerWidth; introCanvas.height = window.innerHeight }
+resizeIntro(); window.addEventListener('resize', resizeIntro)
+const CW = () => introCanvas.width, CH = () => introCanvas.height
+const N = 240
+let pts = Array.from({length:N}, (_,i) => {
+  const theta = Math.acos(1-2*(i+.5)/N), phi = Math.PI*(1+Math.sqrt(5))*i, R = 190
+  return {
+    ox: Math.sin(theta)*Math.cos(phi)*R, oy: Math.sin(theta)*Math.sin(phi)*R,
+    oz: Math.cos(theta)*R, s: Math.random()*2.4+0.8,
+    c: isDarkMode() ? '#F5C842' : '#E0313A'
+  }
+})
+let rot = 0, frame = 0
+function drawSphere() {
+  ctx.clearRect(0,0,CW(),CH()); rot += .006
+  const sorted = [...pts].sort((a,b) => {
+    const az=a.oz*Math.cos(rot)-a.ox*Math.sin(rot), bz=b.oz*Math.cos(rot)-b.ox*Math.sin(rot)
+    return az-bz
+  })
+  sorted.forEach(p => {
+    const x=p.ox*Math.cos(rot)+p.oz*Math.sin(rot), z=-p.ox*Math.sin(rot)+p.oz*Math.cos(rot)
+    const sc=1+(z/350), px=CW()/2+x*sc, py=CH()/2+p.oy*sc
+    ctx.globalAlpha = Math.max(.07, .15+((z+190)/380)*.88)
+    ctx.fillStyle = p.c
+    ctx.beginPath(); ctx.arc(px,py,p.s*sc,0,Math.PI*2); ctx.fill()
+  })
+  ctx.globalAlpha = 1
+  if (frame < 310) { frame++; requestAnimationFrame(drawSphere) }
+}
+drawSphere()
+setTimeout(() => {
+  const intro = document.getElementById('intro')
+  intro.style.transition = 'opacity 0.6s ease'; intro.style.opacity = '0'
+  setTimeout(() => { intro.style.display = 'none' }, 650)
+}, 2600)
+
+// ── IPC ────────────────────────────────────────────────────────────────────
+ipcRenderer.on('sync-file', (ev, fp) => {
+  currentFilePath = fp
+  document.getElementById('dropZone').classList.add('hidden')
+  document.getElementById('fileLoaded').classList.remove('hidden')
+  document.getElementById('fileName').textContent = fp.split('\\').pop()
+  document.getElementById('fileSize').textContent = '—'
+})
+ipcRenderer.on('trigger-slice', (ev, dims) => {
+  if (typeof dims === 'object') {
+    currentFilePath = dims.originalPath||dims.filePath; viewerDims = dims
+    document.getElementById('altura').value = Math.round(dims.heightMM)||100
+    const name = currentFilePath.split(/[\\/]/).pop()
+    document.getElementById('dropZone').classList.add('hidden')
+    document.getElementById('fileLoaded').classList.remove('hidden')
+    document.getElementById('fileName').textContent = name
+    document.getElementById('fileSize').textContent = '(desde visor 3D — '+Math.round(dims.heightMM)+'mm)'
+  } else { currentFilePath = dims; viewerDims = null }
+  procesar()
+})
+
+function abrirVisor() { if (!currentFilePath) return; ipcRenderer.send('open-viewer', currentFilePath) }
+
+// ── Filaments ──────────────────────────────────────────────────────────────
+function seleccionarFilamento(el, precio) {
+  document.querySelectorAll('.fil-card').forEach(o => o.classList.remove('selected'))
+  el.classList.add('selected')
+  const ci = document.getElementById('customPrecio'), cl = document.getElementById('customLabel')
+  if (precio === 'custom') {
+    ci.style.display='block'; cl.style.display='none'
+    precioKG = parseFloat(ci.value)||110000; selectedFilNombre = 'Personalizado'
+    ci.oninput = () => { precioKG = parseFloat(ci.value)||110000 }
+  } else {
+    ci.style.display='none'; cl.style.display='block'
+    precioKG = precio; selectedFilNombre = el.querySelector('.fil-nombre').textContent
+  }
+}
+
+function renderFilamentos() {
+  const c = document.getElementById('filamentosContainer')
+  c.innerHTML = cfg.filamentos.map((f,i) => `
+    <div class="fil-card${i===0?' selected':''}" onclick="seleccionarFilamento(this,${f.precio})">
+      <div class="fil-nombre">${f.nombre}</div>
+      <div class="fil-desc">${f.desc}</div>
+      <div class="fil-precio">$${f.precio.toLocaleString('es-CO')}/kg</div>
+    </div>`).join('') + `
+    <div class="fil-card" onclick="seleccionarFilamento(this,'custom')">
+      <div class="fil-nombre">Personalizado</div>
+      <div class="fil-desc">Precio especial por kg</div>
+      <input type="number" id="customPrecio" class="custom-input" placeholder="Precio/kg" onclick="event.stopPropagation()">
+      <div class="fil-precio" id="customLabel" style="color:var(--txt3)">—</div>
+    </div>`
+  precioKG = cfg.filamentos[0]?.precio||70000
+  selectedFilNombre = cfg.filamentos[0]?.nombre||'Básico'
+}
+
+// ── File handling ──────────────────────────────────────────────────────────
+function handleFile(inp) { const f=inp.files[0]; if(!f) return; currentFilePath=f.path; showFile(f) }
+function showFile(f) {
+  document.getElementById('dropZone').classList.add('hidden')
+  document.getElementById('fileLoaded').classList.remove('hidden')
+  document.getElementById('fileName').textContent = f.name
+  document.getElementById('fileSize').textContent = (f.size/1024/1024).toFixed(2)+' MB'
+}
+function removeFile() {
+  currentFilePath=null; viewerDims=null; lastResult=null
+  document.getElementById('fileInput').value=''
+  document.getElementById('dropZone').classList.remove('hidden')
+  document.getElementById('fileLoaded').classList.add('hidden')
+  document.getElementById('result').style.display='none'
+}
+const dz = document.getElementById('dropZone')
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.style.borderColor='var(--red)' })
+dz.addEventListener('dragleave', () => { dz.style.borderColor='' })
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.style.borderColor=''
+  const f=e.dataTransfer.files[0]; if(f){currentFilePath=f.path;showFile(f)}
+})
+
+// ── Thumbnail ──────────────────────────────────────────────────────────────
+function generateThumbnail(filePath) {
+  if (!filePath) return null
+  const ext = filePath.split('.').pop().toLowerCase()
+  if (ext !== 'stl') return null
+  try {
+    const THREE = require(require('path').join(__dirname,'node_modules','three','build','three.cjs'))
+    const fsNode = require('fs')
+    const W=340, H=220
+    const canvas = document.createElement('canvas'); canvas.width=W; canvas.height=H
+    const renderer = new THREE.WebGLRenderer({canvas,antialias:true,preserveDrawingBuffer:true})
+    renderer.setPixelRatio(1); renderer.setClearColor(isDarkMode()?0x1a1a1a:0xf2f2f7,1)
+    renderer.setSize(W,H)
+    const scene = new THREE.Scene()
+    const camera = new THREE.PerspectiveCamera(38,W/H,0.1,10000)
+    scene.add(new THREE.AmbientLight(0xffffff,0.65))
+    const sun = new THREE.DirectionalLight(0xffffff,0.9); sun.position.set(200,350,200); scene.add(sun)
+    const fill = new THREE.DirectionalLight(0xd0e0ff,0.3); fill.position.set(-150,100,-200); scene.add(fill)
+    const buf = fsNode.readFileSync(filePath).buffer
+    const dv = new DataView(buf)
+    const faceCount = dv.getUint32(80,true)
+    const isBinary = (80+4+faceCount*50) === buf.byteLength
+    const geo = new THREE.BufferGeometry()
+    if (isBinary && faceCount>0 && faceCount<3000000) {
+      const verts=new Float32Array(faceCount*9), norms=new Float32Array(faceCount*9)
+      let off=84
+      for (let i=0; i<faceCount; i++) {
+        const nx=dv.getFloat32(off,true),ny=dv.getFloat32(off+4,true),nz=dv.getFloat32(off+8,true)
+        off+=12
+        for (let j=0; j<3; j++) {
+          const vi=i*9+j*3
+          verts[vi]=dv.getFloat32(off,true); verts[vi+1]=dv.getFloat32(off+4,true); verts[vi+2]=dv.getFloat32(off+8,true)
+          norms[vi]=nx; norms[vi+1]=ny; norms[vi+2]=nz; off+=12
+        }
+        off+=2
+      }
+      geo.setAttribute('position',new THREE.BufferAttribute(verts,3))
+      geo.setAttribute('normal',new THREE.BufferAttribute(norms,3))
+    } else {
+      const text=new TextDecoder().decode(buf), re=/vertex\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)/g
+      const verts=[]; let m
+      while((m=re.exec(text))!==null) verts.push(+m[1],+m[2],+m[3])
+      geo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(verts),3))
+      geo.computeVertexNormals()
+    }
+    geo.computeBoundingBox()
+    const rawSz=new THREE.Vector3(); geo.boundingBox.getSize(rawSz)
+    const maxRaw=Math.max(rawSz.x,rawSz.y,rawSz.z)
+    if(maxRaw<1) geo.scale(1000,1000,1000)
+    else if(maxRaw<10) geo.scale(10,10,10)
+    geo.applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI/2))
+    geo.computeBoundingBox()
+    const b=geo.boundingBox
+    geo.translate(-(b.max.x+b.min.x)/2,-b.min.y,-(b.max.z+b.min.z)/2)
+    geo.computeBoundingBox()
+    const sz=new THREE.Vector3(); geo.boundingBox.getSize(sz)
+    const mat=new THREE.MeshStandardMaterial({color:0xE0313A,roughness:0.5,metalness:0.05})
+    scene.add(new THREE.Mesh(geo,mat))
+    const maxD=Math.max(sz.x,sz.y,sz.z), dist=maxD*2.4
+    camera.position.set(dist*.65,sz.y*.4+dist*.35,dist*.65)
+    camera.lookAt(0,sz.y*.25,0); camera.updateProjectionMatrix()
+    renderer.render(scene,camera)
+    const dataURL = canvas.toDataURL('image/png')
+    renderer.dispose(); geo.dispose(); mat.dispose()
+    return dataURL
+  } catch(e) { console.error('Thumbnail error:',e); return null }
+}
+
+// ── Formula ────────────────────────────────────────────────────────────────
+function fmt(n) { return '$'+Math.round(n).toLocaleString('es-CO') }
+function calcularPrecio(horas, gramos) {
+  const mat=(precioKG/1000)*gramos, ene=(cfg.energiaW/1000)*cfg.tarifaEnergia*horas
+  const des=(cfg.desgasteTotal/cfg.horasDesgaste)*horas
+  const ope=cfg.operarioPorHora*horas, esp=cfg.espacioPorHora*horas
+  const fijos=cfg.costoMontaje+cfg.costoMaquinado
+  const sub=mat+ene+des+ope+esp+fijos
+  const total=Math.round(sub*(1+cfg.margenPct/100)*cfg.markup)
+  return{total,desglose:{material:mat,energia:ene,desgaste:des,operario:ope,espacio:esp,fijos,subtotal:sub}}
+}
+
+// ── Procesar ───────────────────────────────────────────────────────────────
+async function procesar() {
+  if (!currentFilePath) { alert('Por favor selecciona un archivo primero.'); return }
+  const altura=document.getElementById('altura').value||100
+  const btn=document.getElementById('btnProcess'), msg=document.getElementById('progressMsg')
+  btn.innerHTML='<span class="spinner"></span> Procesando...'; btn.disabled=true; msg.style.display='block'
+  document.getElementById('result').style.display='none'
+  try {
+    const fileToSlice=(viewerDims&&viewerDims.tempSTLPath)?viewerDims.tempSTLPath:currentFilePath
+    const extraData=viewerDims?{scaleX:viewerDims.sx,scaleY:viewerDims.sy,scaleZ:viewerDims.sz,scalePct:viewerDims.tempSTLPath?'100':null}:null
+    const resultado=await ipcRenderer.invoke('slice-model',fileToSlice,altura,extraData)
+    const horas=parseFloat(resultado.horas), gramos=parseFloat(resultado.gramos)
+    const {total,desglose}=calcularPrecio(horas,gramos)
+    document.getElementById('resTiempo').textContent=resultado.tiempo
+    document.getElementById('resGramos').textContent=gramos.toFixed(2)+'g'
+    document.getElementById('resPrice').textContent=fmt(total)
+    document.getElementById('resMaterialBadge').textContent=selectedFilNombre+' · Bamboo A1'
+    document.getElementById('result').style.display='block'
+    document.getElementById('result').scrollIntoView({behavior:'smooth'})
+    const thumbnail = generateThumbnail(currentFilePath)
+    lastResult = {
+      archivo: currentFilePath.split(/[\\/]/).pop(),
+      fecha: new Date().toLocaleDateString('es-CO',{year:'numeric',month:'long',day:'numeric'}),
+      material: selectedFilNombre, tiempo: resultado.tiempo,
+      gramos: gramos.toFixed(2), precio: total, desglose, thumbnail
+    }
+  } catch(err) { alert('Error al procesar: '+err) }
+  finally { btn.innerHTML='Calcular Cotizacion'; btn.disabled=false; msg.style.display='none' }
+}
+
+// ── Export ─────────────────────────────────────────────────────────────────
+async function exportarPDF() {
+  if (!lastResult) { alert('Primero genera una cotizacion.'); return }
+  const r=await ipcRenderer.invoke('export-pdf',lastResult)
+  if (r&&r.success) alert('PDF guardado en:\n'+r.path)
+}
+async function exportarCSV() {
+  if (!lastResult) { alert('Primero genera una cotizacion.'); return }
+  await ipcRenderer.invoke('export-csv',lastResult)
+}
+
+// ── Password modal ─────────────────────────────────────────────────────────
+function openSettings() { document.getElementById('passwordModal').classList.add('open') }
+function closePwdModal() {
+  document.getElementById('passwordModal').classList.remove('open')
+  document.getElementById('pwdInput').value=''; document.getElementById('pwdError').style.display='none'
+}
+function checkPassword() {
+  const crypto=require('crypto'), h=s=>crypto.createHash('sha256').update(s).digest('hex')
+  const input=document.getElementById('pwdInput').value
+  if (h(input)===h('1001042945')) { closePwdModal(); openSettingsModal() }
+  else {
+    document.getElementById('pwdError').style.display='block'
+    document.getElementById('pwdInput').value=''; document.getElementById('pwdInput').focus()
+  }
+}
+
+// ── Settings modal ─────────────────────────────────────────────────────────
+function openSettingsModal() {
+  document.getElementById('cfg-energiaW').value=cfg.energiaW
+  document.getElementById('cfg-tarifaEnergia').value=cfg.tarifaEnergia
+  document.getElementById('cfg-desgasteTotal').value=cfg.desgasteTotal
+  document.getElementById('cfg-horasDesgaste').value=cfg.horasDesgaste
+  document.getElementById('cfg-operarioPorHora').value=cfg.operarioPorHora
+  document.getElementById('cfg-espacioPorHora').value=cfg.espacioPorHora
+  document.getElementById('cfg-costoMontaje').value=cfg.costoMontaje
+  document.getElementById('cfg-costoMaquinado').value=cfg.costoMaquinado
+  document.getElementById('cfg-margenPct').value=cfg.margenPct
+  document.getElementById('cfg-markup').value=cfg.markup
+  renderMaterialRows()
+  document.getElementById('settingsModal').classList.add('open')
+}
+function closeSettings() { document.getElementById('settingsModal').classList.remove('open') }
+
+function renderMaterialRows() {
+  document.getElementById('matRows').innerHTML=cfg.filamentos.map((f,i)=>`
+    <div class="mat-row">
+      <input class="mat-input" value="${f.nombre}" placeholder="Nombre" oninput="cfg.filamentos[${i}].nombre=this.value">
+      <input class="mat-input" value="${f.desc}" placeholder="Descripcion" oninput="cfg.filamentos[${i}].desc=this.value">
+      <input class="mat-input" type="number" value="${f.precio}" placeholder="$/kg" oninput="cfg.filamentos[${i}].precio=parseInt(this.value)||0">
+      <button class="mat-del" onclick="deleteMaterial(${i})">✕</button>
+    </div>`).join('')
+}
+function addMaterial() { cfg.filamentos.push({nombre:'Nuevo',desc:'Descripcion',precio:80000}); renderMaterialRows() }
+function deleteMaterial(i) { if(cfg.filamentos.length>1){cfg.filamentos.splice(i,1);renderMaterialRows()} }
+async function saveSettings() {
+  cfg.energiaW      =parseFloat(document.getElementById('cfg-energiaW').value)||225
+  cfg.tarifaEnergia =parseFloat(document.getElementById('cfg-tarifaEnergia').value)||1000
+  cfg.desgasteTotal =parseFloat(document.getElementById('cfg-desgasteTotal').value)||3000000
+  cfg.horasDesgaste =parseFloat(document.getElementById('cfg-horasDesgaste').value)||74627
+  cfg.operarioPorHora=parseFloat(document.getElementById('cfg-operarioPorHora').value)||600
+  cfg.espacioPorHora =parseFloat(document.getElementById('cfg-espacioPorHora').value)||350
+  cfg.costoMontaje   =parseFloat(document.getElementById('cfg-costoMontaje').value)||2500
+  cfg.costoMaquinado =parseFloat(document.getElementById('cfg-costoMaquinado').value)||1000
+  cfg.margenPct      =parseFloat(document.getElementById('cfg-margenPct').value)||0
+  cfg.markup         =parseFloat(document.getElementById('cfg-markup').value)||2.0
+  await ipcRenderer.invoke('save-settings',cfg)
+  renderFilamentos(); closeSettings()
+}
+async function initSettings() { cfg=await ipcRenderer.invoke('load-settings'); renderFilamentos() }
+
+// ── License overlay (activar durante trial) ────────────────────────────────
+function showLicenseOverlay() {
+  licenseIsOverlay=true
+  document.getElementById('licenseMsg').textContent='Activar Licencia'
+  document.getElementById('lic-sub-text').innerHTML='Ingresa tu codigo de activacion<br>para desbloquear la app completa.'
+  document.getElementById('licCloseBtn').style.display='flex'
+  document.getElementById('licenseScreen').style.display='flex'
+}
+function closeLicenseOverlay() {
+  if (!licenseIsOverlay) return
+  licenseIsOverlay=false
+  document.getElementById('licenseScreen').style.display='none'
+  document.getElementById('licCloseBtn').style.display='none'
+}
+
+// ── Auto-updater UI ─────────────────────────────────────────────────────────
+let updateState = null
+ipcRenderer.on('update-status', (ev, info) => {
+  const banner = document.getElementById('updateBanner')
+  const msg    = document.getElementById('updateMsg')
+  const btn    = document.getElementById('updateBtn')
+  const iconBtn = document.getElementById('updateIconBtn')
+  if (iconBtn) iconBtn.style.display = 'flex'
+  banner.className = 'update-banner'
+  updateState = info.type
+  if (info.type === 'checking') {
+    banner.classList.add('checking')
+    msg.textContent = 'Buscando actualizaciones...'
+    btn.style.display = 'none'
+  } else if (info.type === 'available') {
+    banner.classList.add('available')
+    msg.textContent = `Nueva versión disponible: v${info.version}`
+    btn.textContent = 'Descargar'; btn.style.display = 'inline-block'
+  } else if (info.type === 'progress') {
+    banner.classList.add('available')
+    msg.textContent = `Descargando actualización... ${info.percent}%`
+    btn.style.display = 'none'
+  } else if (info.type === 'ready') {
+    banner.classList.add('ready')
+    msg.textContent = 'Actualización lista para instalar'
+    btn.textContent = 'Instalar y reiniciar'; btn.style.display = 'inline-block'
+  } else if (info.type === 'up-to-date') {
+    msg.textContent = 'La app está actualizada'
+    banner.classList.add('checking')
+    btn.style.display = 'none'
+    setTimeout(() => { banner.style.display = 'none' }, 3000)
+  } else if (info.type === 'error') {
+    banner.classList.add('checking')
+    msg.textContent = 'No se pudo verificar actualizaciones'
+    btn.style.display = 'none'
+    setTimeout(() => { banner.style.display = 'none' }, 4000)
+  }
+})
+async function handleUpdateBtn() {
+  if (updateState === 'available') await ipcRenderer.invoke('download-update')
+  else if (updateState === 'ready') await ipcRenderer.invoke('install-update')
+}
+async function checkUpdatesManual() {
+  const btn = document.getElementById('updateIconBtn')
+  if (btn) { btn.style.animation = 'spin .7s linear infinite'; setTimeout(()=>{btn.style.animation=''},3000) }
+  await ipcRenderer.invoke('check-for-updates')
+}
+
+// ── License ────────────────────────────────────────────────────────────────
+const fs=require('fs'),path=require('path'),os=require('os'),crypto=require('crypto')
+const LICENSE_FILE=path.join(os.homedir(),'AppData','Roaming','Brumet Slicer','license.json')
+const TRIAL_DAYS=30, LICENSE_DAYS=183
+let VALID_HASHES = []  // se cargan desde licenses.json vía IPC
+function hashCode(c){return crypto.createHash('sha256').update(c.trim()).digest('hex')}
+function loadLicense(){try{if(fs.existsSync(LICENSE_FILE))return JSON.parse(fs.readFileSync(LICENSE_FILE,'utf8'))}catch(e){}return null}
+function saveLicense(d){const dir=path.dirname(LICENSE_FILE);if(!fs.existsSync(dir))fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(LICENSE_FILE,JSON.stringify(d),'utf8')}
+function checkLicense(){
+  let lic=loadLicense(); const now=Date.now()
+  if(!lic){lic={type:'trial',startDate:now};saveLicense(lic)}
+  if(lic.type==='trial'){const d=Math.ceil((TRIAL_DAYS*86400000-(now-lic.startDate))/86400000);if(d<=0)return{status:'expired_trial'};return{status:'trial',daysLeft:d}}
+  if(lic.type==='licensed'){const d=Math.ceil((LICENSE_DAYS*86400000-(now-lic.activationDate))/86400000);if(d<=0)return{status:'expired_license'};return{status:'licensed',daysLeft:d}}
+  return{status:'expired_trial'}
+}
+function activateCode(code){
+  const hash=hashCode(code.trim())
+  if(!VALID_HASHES.includes(hash)) return false
+  const lic=loadLicense()||{}; if(lic.usedCode===hash) return false
+  saveLicense({type:'licensed',activationDate:Date.now(),usedCode:hash}); return true
+}
+function showApp(){document.getElementById('licenseScreen').style.display='none';document.getElementById('mainApp').style.display='block'}
+function showTrialBanner(d){const b=document.getElementById('trialBanner');if(b){b.style.display='flex';document.getElementById('trialDays').textContent=d}}
+function showLicenseScreen(s){document.getElementById('licenseScreen').style.display='flex';document.getElementById('mainApp').style.display='none';document.getElementById('licenseMsg').textContent=s==='expired_trial'?'Periodo de Prueba Vencido':'Licencia Vencida'}
+function tryActivate(){
+  const code=document.getElementById('licenseInput').value.trim(); if(!code) return
+  if(activateCode(code)){
+    document.getElementById('licenseError').style.display='none'
+    if(licenseIsOverlay){closeLicenseOverlay()}else{showApp()}
+  } else document.getElementById('licenseError').style.display='block'
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  applyTheme(userTheme)
+  VALID_HASHES = await ipcRenderer.invoke('load-license-hashes')
+  const r=checkLicense()
+  if(r.status==='trial'){showTrialBanner(r.daysLeft);showApp()}
+  else if(r.status==='licensed'){showApp()}
+  else showLicenseScreen(r.status)
+  await initSettings()
+  // Mostrar versión
+  const v = await ipcRenderer.invoke('get-app-version')
+  const sub = document.querySelector('.logo-sub')
+  if (sub) sub.textContent = `Cotizador 3D · Bamboo A1 · v${v}`
+})
+</script>
+</body>
+</html>
