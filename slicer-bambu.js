@@ -14,9 +14,17 @@ const BAMBU_EXE = (() => {
   }
   return 'C:\\Program Files\\Bambu Studio\\bambu-studio.exe'
 })()
-const PLANTILLA_3MF = path.join(__dirname, 'perfiles', 'elevador_config.3mf')
-const TEMP_DIR = path.join(require('os').homedir(), 'AppData', 'Roaming', 'Brumet Slicer', 'temp')
+// En producción el ASAR empaqueta el código pero extraResources queda fuera
+// perfiles/ → resources/perfiles/  |  dev: __dirname/perfiles/
+const PLANTILLA_3MF = (() => {
+  const devPath  = path.join(__dirname, 'perfiles', 'elevador_config.3mf')
+  if (fs.existsSync(devPath)) return devPath
+  const prodPath = path.join(process.resourcesPath || '', 'perfiles', 'elevador_config.3mf')
+  return prodPath
+})()
+const TEMP_DIR   = path.join(require('os').homedir(), 'AppData', 'Roaming', 'Brumet Slicer', 'temp')
 const OUTPUT_DIR = TEMP_DIR
+const SLICE_TIMEOUT_MS = 10 * 60 * 1000  // 10 minutos máximo
 
 function esSTLAscii(buf) {
   const inicio = buf.slice(0, 256).toString('utf8')
@@ -347,8 +355,17 @@ function laminarConBambu(filePath, scalePct, callback) {
 
     const proc = spawn(BAMBU_EXE, ['--slice', '1', '--outputdir', OUTPUT_DIR, archivoFinal])
     let stderr = ''
+    proc.stdout.on('data', () => {})           // drenar stdout para evitar bloqueo en Windows
     proc.stderr.on('data', d => stderr += d.toString())
-    proc.on('close', () => {
+
+    // Timeout de seguridad: si BambuStudio cuelga, matar el proceso
+    const timer = setTimeout(() => {
+      try { proc.kill() } catch(e) {}
+      callback('BambuStudio tardó más de 10 minutos. Intenta con un modelo más simple.')
+    }, SLICE_TIMEOUT_MS)
+
+    proc.on('close', (code) => {
+      clearTimeout(timer)
       if (!fs.existsSync(resultPath)) return callback('BambuStudio no generó result.json. ' + stderr)
       try {
         const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'))

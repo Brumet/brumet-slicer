@@ -128,9 +128,9 @@ ipcMain.on('sync-file', (event, filePath) => {
 })
 
 // ── Motor de laminado ─────────────────────────────────────────────────────────
+const { laminarConBambu } = require('./slicer-bambu.js')
+
 ipcMain.handle('slice-model', async (event, filePath, heightMM, extraData) => {
-  delete require.cache[require.resolve('./slicer-bambu.js')]
-  const { laminarConBambu } = require('./slicer-bambu.js')
 
   return new Promise((resolve, reject) => {
     const scalePct = extraData && extraData.scalePct ? parseFloat(extraData.scalePct) : null
