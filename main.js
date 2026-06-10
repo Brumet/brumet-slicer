@@ -62,7 +62,10 @@ ipcMain.handle('check-for-updates', async () => {
 ipcMain.handle('download-update', async () => {
   if (!autoUpdater) return { error: 'No disponible' }
   try {
-    autoUpdater.downloadUpdate()  // no await — los eventos de progreso manejan el UI
+    // no await — los eventos 'progress'/'ready'/'error' manejan el UI
+    autoUpdater.downloadUpdate().catch(e => {
+      mainWin && mainWin.webContents.send('update-status', {type:'error', msg: e.message})
+    })
     return { ok: true }
   }
   catch(e) { return { error: e.message } }

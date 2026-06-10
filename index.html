@@ -71,13 +71,18 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
 .trial-activate:hover{background:rgba(0,0,0,0.35)}
 
 /* ── Update banner ── */
-.update-banner{display:none;padding:8px 18px;font-size:12px;font-weight:500;letter-spacing:.02em;align-items:center;justify-content:center;gap:10px;animation:slideUp .4s ease}
+.update-banner{display:none;position:relative;padding:8px 18px;font-size:12px;font-weight:500;letter-spacing:.02em;align-items:center;justify-content:center;gap:10px;animation:slideUp .4s ease}
 .update-banner.available{background:rgba(245,200,66,0.12);border-bottom:1px solid rgba(245,200,66,0.25);color:var(--gold);display:flex}
 .update-banner.ready{background:rgba(34,197,94,0.1);border-bottom:1px solid rgba(34,197,94,0.2);color:#22c55e;display:flex}
 .update-banner.checking{background:var(--surf);border-bottom:1px solid var(--bdr);color:var(--txt2);display:flex}
+.update-banner.error{background:rgba(239,68,68,0.1);border-bottom:1px solid rgba(239,68,68,0.2);color:#ef4444;display:flex}
 .upd-btn{padding:3px 12px;border-radius:20px;border:1px solid currentColor;background:transparent;color:inherit;font-size:10px;font-weight:700;letter-spacing:.1em;cursor:pointer;font-family:'Inter',sans-serif;opacity:.85;transition:opacity .2s}
 .upd-btn:hover{opacity:1}
+.upd-btn:disabled{opacity:.4;cursor:default}
 .upd-progress{font-size:11px;opacity:.7}
+.upd-bar{display:none;position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(127,127,127,0.2)}
+.upd-bar.show{display:block}
+.upd-bar-fill{height:100%;width:0%;background:currentColor;transition:width .25s ease}
 
 /* ── Header ── */
 .header{padding:15px 22px 12px;background:var(--bg2);border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;position:relative;z-index:10;animation:slideUp .5s cubic-bezier(0.34,1.56,0.64,1) 2.6s both}
@@ -350,6 +355,7 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
   <div class="update-banner" id="updateBanner">
     <span id="updateMsg"></span>
     <button class="upd-btn" id="updateBtn" style="display:none" onclick="handleUpdateBtn()"></button>
+    <div class="upd-bar" id="updBar"><div class="upd-bar-fill" id="updBarFill"></div></div>
   </div>
 
   <div class="header">
@@ -991,18 +997,30 @@ function closeLicenseOverlay() {
 // ── Auto-updater UI ─────────────────────────────────────────────────────────
 let updateState  = null
 let manualCheck  = false
+let downloading  = false
 
 function showBanner(type, text, btnText) {
   const banner = document.getElementById('updateBanner')
   const msg    = document.getElementById('updateMsg')
   const btn    = document.getElementById('updateBtn')
   banner.className = 'update-banner ' + type
+  banner.style.display = 'flex'
   msg.textContent  = text
+  btn.disabled = false
   btn.style.display = btnText ? 'inline-block' : 'none'
   if (btnText) btn.textContent = btnText
 }
 function hideBanner(delay) {
-  setTimeout(() => { document.getElementById('updateBanner').style.display = 'none' }, delay||0)
+  setTimeout(() => {
+    document.getElementById('updateBanner').style.display = 'none'
+    showProgressBar(false)
+  }, delay||0)
+}
+function showProgressBar(show, pct) {
+  const bar  = document.getElementById('updBar')
+  const fill = document.getElementById('updBarFill')
+  bar.classList.toggle('show', !!show)
+  if (typeof pct === 'number') fill.style.width = pct + '%'
 }
 
 ipcRenderer.on('update-status', (ev, info) => {
@@ -1010,31 +1028,47 @@ ipcRenderer.on('update-status', (ev, info) => {
   if (info.type === 'checking') {
     if (manualCheck) showBanner('checking', 'Buscando actualizaciones...')
   } else if (info.type === 'available') {
+    downloading = false
+    showProgressBar(false)
     showBanner('available', `Nueva versión disponible: v${info.version}`, 'Descargar')
   } else if (info.type === 'progress') {
     const pct = info.percent || 0
-    const bar = '█'.repeat(Math.floor(pct/10)) + '░'.repeat(10-Math.floor(pct/10))
-    showBanner('available', `Descargando ${pct}%  ${bar}`)
+    showBanner('available', `Descargando actualización... ${pct}%`)
+    showProgressBar(true, pct)
   } else if (info.type === 'ready') {
-    showBanner('ready', 'Actualización lista — reinicia para instalar', 'Instalar y reiniciar')
+    downloading = false
+    showProgressBar(false)
+    showBanner('ready', 'Actualización descargada — reinicia para instalar', 'Instalar y reiniciar')
   } else if (info.type === 'up-to-date') {
     if (manualCheck) { showBanner('checking', '✓ Ya tienes la última versión'); hideBanner(3500) }
     manualCheck = false
   } else if (info.type === 'error') {
-    if (manualCheck) { showBanner('checking', '✓ Ya tienes la última versión'); hideBanner(3500) }
-    else hideBanner(0)
+    showProgressBar(false)
+    if (downloading) {
+      downloading = false
+      updateState = 'error'
+      showBanner('error', 'No se pudo descargar automáticamente.', 'Abrir navegador')
+    } else if (manualCheck) {
+      showBanner('checking', '✓ Ya tienes la última versión'); hideBanner(3500)
+    } else {
+      hideBanner(0)
+    }
     manualCheck = false
   }
 })
 
 function handleUpdateBtn() {
-  if (updateState === 'available') {
-    // Abrir navegador — más confiable que descargar dentro de la app (430 MB)
-    require('electron').shell.openExternal('https://github.com/Brumet/brumet-slicer/releases/latest')
-    showBanner('checking', '↗ Abriendo descarga en tu navegador... Instala el .exe cuando termine y la app se actualiza sola.')
-    hideBanner(9000)
+  if (updateState === 'available' && !downloading) {
+    downloading = true
+    document.getElementById('updateBtn').disabled = true
+    showBanner('available', 'Iniciando descarga...')
+    showProgressBar(true, 0)
+    ipcRenderer.invoke('download-update')
   } else if (updateState === 'ready') {
     ipcRenderer.invoke('install-update')
+  } else if (updateState === 'error') {
+    require('electron').shell.openExternal('https://github.com/Brumet/brumet-slicer/releases/latest')
+    hideBanner(500)
   }
 }
 

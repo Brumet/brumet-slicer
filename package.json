@@ -1,6 +1,6 @@
 {
   "name": "brumet-slicer",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Cotizador de impresion 3D Brumet",
   "main": "main.js",
   "scripts": {
@@ -27,7 +27,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Brumet Slicer"
+      "shortcutName": "Brumet Slicer",
+      "artifactName": "Brumet-Slicer-Setup-${version}.${ext}"
     },
     "files": [
       "main.js",
