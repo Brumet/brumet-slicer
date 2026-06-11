@@ -25,9 +25,12 @@ function logError(origen, msg) {
 }
 
 // ── Reporte automático de errores (webhook) ──────────────────────────────────
-// Pega aquí la URL de un webhook de Discord para recibir los errores de los
-// clientes automáticamente. Vacío = desactivado (solo queda el log local).
-const REPORT_WEBHOOK_URL = ''
+// La URL vive en webhook.json (fuera de git — el repo es público y GitHub/Discord
+// invalidan webhooks filtrados). El archivo sí se empaqueta dentro de la app.
+const REPORT_WEBHOOK_URL = (() => {
+  try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'webhook.json'), 'utf8')).url || '' }
+  catch(e) { return '' }
+})()
 let ultimoEnvioWebhook = 0
 
 function enviarErrorWebhook(origen, msg) {

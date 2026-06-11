@@ -37,6 +37,7 @@
       "slicer-bambu.js",
       "leer-gcode.js",
       "licenses.json",
+      "webhook.json",
       "assets/**",
       "perfiles/**",
       "node_modules/**"

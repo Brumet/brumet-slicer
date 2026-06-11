@@ -28,6 +28,9 @@ hacer_icono.js
 slicer-bambu.BACKUP.js
 .claude/
 
+# Webhook de Discord para reportes de error — NO subir (repo público, Discord lo invalidaría)
+webhook.json
+
 # Generador de licencias — NUNCA subir a git
 generar-codigos.js
 
