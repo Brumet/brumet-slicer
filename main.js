@@ -21,6 +21,38 @@ function logError(origen, msg) {
     }
     fs.appendFileSync(file, `[${new Date().toISOString()}] [v${app.getVersion()}] [${origen}] ${msg}\n`)
   } catch(e) { /* el logger nunca debe tumbar la app */ }
+  enviarErrorWebhook(origen, msg)
+}
+
+// ── Reporte automático de errores (webhook) ──────────────────────────────────
+// Pega aquí la URL de un webhook de Discord para recibir los errores de los
+// clientes automáticamente. Vacío = desactivado (solo queda el log local).
+const REPORT_WEBHOOK_URL = ''
+let ultimoEnvioWebhook = 0
+
+function enviarErrorWebhook(origen, msg) {
+  if (!REPORT_WEBHOOK_URL) return
+  const ahora = Date.now()
+  if (ahora - ultimoEnvioWebhook < 60 * 1000) return  // máx 1 por minuto, evita spam
+  ultimoEnvioWebhook = ahora
+  try {
+    const https = require('https')
+    const body = JSON.stringify({
+      content: `🚨 **Brumet Slicer v${app.getVersion()}** · ${origen}\n` +
+               `Windows ${require('os').release()} · ${new Date().toLocaleString('es-CO')}\n` +
+               '```\n' + String(msg).slice(0, 1500) + '\n```'
+    })
+    const u = new URL(REPORT_WEBHOOK_URL)
+    const req = https.request({
+      hostname: u.hostname, path: u.pathname + u.search, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      timeout: 10000
+    })
+    req.on('error', () => {})
+    req.on('timeout', () => req.destroy())
+    req.write(body)
+    req.end()
+  } catch(e) { /* nunca tumbar la app por un reporte */ }
 }
 
 process.on('uncaughtException', (e) => logError('main', 'uncaughtException: ' + (e.stack || e.message)))
@@ -178,7 +210,7 @@ const { laminarConBambu, cancelarLaminado } = require('./slicer-bambu.js')
 
 ipcMain.handle('cancel-slice', () => { cancelarLaminado(); return true })
 
-ipcMain.handle('slice-model', async (event, filePath, heightMM, extraData) => {
+ipcMain.handle('slice-model', async (event, filePath, extraData) => {
 
   return new Promise((resolve, reject) => {
     const scalePct    = extraData && extraData.scalePct   ? parseFloat(extraData.scalePct) : null
@@ -283,9 +315,14 @@ ipcMain.handle('export-csv', async (event, data) => {
     ['Archivo', data.archivo],
     ['Fecha', data.fecha],
     ['Material', data.material],
-    ['Tiempo estimado', data.tiempo],
-    ['Filamento usado', data.gramos + 'g'],
-    ['Precio estimado (COP)', Math.round(data.precio)],
+    ['Tiempo estimado' + (data.cantidad > 1 ? ' (por pieza)' : ''), data.tiempo],
+    ['Filamento usado' + (data.cantidad > 1 ? ' (por pieza)' : ''), data.gramos + 'g'],
+    ...(data.cantidad > 1 ? [
+      ['Cantidad de piezas', data.cantidad],
+      ['Precio unitario (COP)', Math.round(data.precioUnitario)],
+      ...(data.descuentoPct > 0 ? [['Descuento por mayoreo', data.descuentoPct + '%']] : [])
+    ] : []),
+    ['Precio ' + (data.cantidad > 1 ? 'total' : 'estimado') + ' (COP)', Math.round(data.precio)],
     ['', ''],
     ['AVISO', 'Precio sujeto a verificacion antes de confirmar la impresion.'],
   ]
@@ -335,10 +372,14 @@ ${thumbSection}
 ${data.cliente ? `<div class="row"><span class="lbl">Cliente</span><span class="val">${data.cliente}</span></div>` : ''}
 <div class="row"><span class="lbl">Impresora</span><span class="val">${data.impresora || 'Bambu A1'}</span></div>
 <div class="row"><span class="lbl">Material seleccionado</span><span class="val">${data.material}</span></div>
-<div class="row"><span class="lbl">Tiempo estimado de impresión</span><span class="val">${data.tiempo}</span></div>
-<div class="row"><span class="lbl">Filamento requerido</span><span class="val">${data.gramos}g</span></div>
+<div class="row"><span class="lbl">Tiempo estimado de impresión${data.cantidad > 1 ? ' (por pieza)' : ''}</span><span class="val">${data.tiempo}</span></div>
+<div class="row"><span class="lbl">Filamento requerido${data.cantidad > 1 ? ' (por pieza)' : ''}</span><span class="val">${data.gramos}g</span></div>
+${data.cantidad > 1 ? `
+<div class="row"><span class="lbl">Cantidad de piezas</span><span class="val">${data.cantidad}</span></div>
+<div class="row"><span class="lbl">Precio unitario</span><span class="val">${fmt(data.precioUnitario)}</span></div>
+${data.descuentoPct > 0 ? `<div class="row"><span class="lbl">Descuento por mayoreo</span><span class="val" style="color:#16a34a">-${data.descuentoPct}%</span></div>` : ''}` : ''}
 <div class="price-box">
-  <div class="plbl">Precio estimado</div>
+  <div class="plbl">Precio ${data.cantidad > 1 ? 'total (' + data.cantidad + ' piezas)' : 'estimado'}</div>
   <div class="pval">${fmt(data.precio)}</div>
   <div class="psub">Pesos colombianos · IVA no incluido</div>
 </div>

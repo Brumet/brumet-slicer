@@ -139,15 +139,6 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
 .custom-input{width:100%;margin-top:7px;height:30px;border:1px solid var(--bdr);border-radius:6px;padding:0 9px;font-size:12px;background:var(--inp);color:var(--txt);display:none;outline:none;transition:border-color .2s}
 .custom-input:focus{border-color:var(--red)}
 
-/* ── Supports toggle ── */
-.supports-row{display:flex;align-items:center;justify-content:space-between;padding:13px 0 0;border-top:1px solid var(--bdr);margin-top:13px}
-.supports-info p{font-size:14px;font-weight:500;color:var(--txt)}
-.supports-info small{font-size:11px;color:var(--txt2)}
-.toggle-input{opacity:0;width:0;height:0;position:absolute}
-.toggle-label{display:block;width:44px;height:26px;background:var(--bdr2);border-radius:13px;cursor:pointer;transition:background .22s;position:relative}
-.toggle-label::after{content:'';position:absolute;width:20px;height:20px;background:#fff;border-radius:50%;top:3px;left:3px;transition:transform .22s cubic-bezier(0.34,1.56,0.64,1);box-shadow:0 1px 5px rgba(0,0,0,0.3)}
-.toggle-input:checked+.toggle-label{background:var(--red)}
-.toggle-input:checked+.toggle-label::after{transform:translateX(18px)}
 
 /* ── Process btn ── */
 .btn-process{width:100%;height:52px;background:var(--red);color:#fff;border:none;border-radius:var(--rs);font-size:15px;font-weight:700;cursor:pointer;font-family:'Bebas Neue',sans-serif;letter-spacing:.18em;transition:all .2s;animation:springUp .5s cubic-bezier(0.34,1.56,0.64,1) 3s both;box-shadow:0 4px 18px rgba(224,49,58,0.35)}
@@ -168,6 +159,10 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
 .metric:last-child{border-right:none}
 .metric .val{font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--txt);letter-spacing:.04em}
 .metric .lbl{font-size:9px;color:var(--txt2);margin-top:3px;letter-spacing:.18em;text-transform:uppercase;font-weight:600}
+.qty-breakdown{padding:12px 20px;border-bottom:1px solid var(--bdr);font-size:12px}
+.qty-row{display:flex;justify-content:space-between;padding:4px 0;color:var(--txt2)}
+.qty-row span:last-child{font-weight:600;color:var(--txt)}
+.qty-row.qty-desc span:last-child{color:#22c55e}
 .price-box{padding:24px 20px;text-align:center;border-bottom:1px solid var(--bdr)}
 .price{font-family:'Bebas Neue',sans-serif;font-size:56px;color:var(--gold);letter-spacing:-1px;line-height:1}
 .price-label{font-size:11px;color:var(--txt2);margin-top:5px;letter-spacing:.04em}
@@ -432,15 +427,11 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
         </div>
       </div>
       <div class="field" style="margin-bottom:16px">
-        <label>Altura del modelo (mm)</label>
-        <input type="number" id="altura" placeholder="Ej: 100" min="1" max="256" value="100">
+        <label>Cantidad de piezas</label>
+        <input type="number" id="cantidad" placeholder="1" min="1" max="999" value="1">
       </div>
       <div class="s-label">Tipo de filamento</div>
       <div class="filamentos" id="filamentosContainer"></div>
-      <div class="supports-row">
-        <div class="supports-info"><p>Soportes automaticos</p><small>Se generan si el modelo los necesita</small></div>
-        <div><input type="checkbox" id="supports" class="toggle-input" checked><label for="supports" class="toggle-label"></label></div>
-      </div>
     </div>
 
     <button class="btn-process" id="btnProcess" onclick="procesar()">Calcular Cotizacion</button>
@@ -457,9 +448,14 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
         <div class="metric"><div class="val" id="resTiempo">—</div><div class="lbl">Tiempo estimado</div></div>
         <div class="metric"><div class="val" id="resGramos">—</div><div class="lbl">Filamento usado</div></div>
       </div>
+      <div class="qty-breakdown" id="qtyBreakdown" style="display:none">
+        <div class="qty-row"><span>Precio por pieza</span><span id="qtyUnit">—</span></div>
+        <div class="qty-row"><span id="qtyCountLbl">Cantidad</span><span id="qtyCount">—</span></div>
+        <div class="qty-row qty-desc"><span id="qtyDescLbl">Descuento por mayoreo</span><span id="qtyDesc">—</span></div>
+      </div>
       <div class="price-box">
         <div class="price" id="resPrice">$0</div>
-        <div class="price-label">Valor estimado en pesos colombianos</div>
+        <div class="price-label" id="resPriceLabel">Valor estimado en pesos colombianos</div>
       </div>
       <div class="disclaimer">
         <svg class="disclaimer-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -662,7 +658,6 @@ ipcRenderer.on('sync-file', (ev, fp) => {
 ipcRenderer.on('trigger-slice', (ev, dims) => {
   if (typeof dims === 'object') {
     currentFilePath = dims.originalPath||dims.filePath; viewerDims = dims
-    document.getElementById('altura').value = Math.round(dims.heightMM)||100
     const name = currentFilePath.split(/[\\/]/).pop()
     document.getElementById('dropZone').classList.add('hidden')
     document.getElementById('fileLoaded').classList.remove('hidden')
@@ -833,6 +828,20 @@ function generateThumbnail(filePath) {
 
 // ── Formula ────────────────────────────────────────────────────────────────
 function fmt(n) { return '$'+Math.round(n).toLocaleString('es-CO') }
+
+// Descuento suave por mayoreo (no afecta la fórmula por pieza)
+function descuentoPorCantidad(n) {
+  if (n >= 21) return 15
+  if (n >= 11) return 12
+  if (n >= 6)  return 8
+  if (n >= 3)  return 5
+  return 0
+}
+
+function formatHorasTotal(h) {
+  const horas = Math.floor(h), mins = Math.round((h - horas) * 60)
+  return horas > 0 ? `${horas}h ${mins}m` : `${mins}m`
+}
 function calcularPrecio(horas, gramos) {
   const mat=(precioKG/1000)*gramos, ene=(cfg.energiaW/1000)*cfg.tarifaEnergia*horas
   const des=(cfg.desgasteTotal/cfg.horasDesgaste)*horas
@@ -846,7 +855,6 @@ function calcularPrecio(horas, gramos) {
 // ── Procesar ───────────────────────────────────────────────────────────────
 async function procesar() {
   if (!currentFilePath) { alert('Por favor selecciona un archivo primero.'); return }
-  const altura=document.getElementById('altura').value||100
   const btn=document.getElementById('btnProcess'), msg=document.getElementById('progressMsg')
   btn.innerHTML='<span class="spinner"></span> Procesando...'; btn.disabled=true; msg.style.display='block'
   document.getElementById('btnCancel').style.display='block'
@@ -858,15 +866,41 @@ async function procesar() {
       impresora: selectedPrinter,
       originalPath: viewerDims&&viewerDims.originalPath ? viewerDims.originalPath : undefined
     }
-    const resultado=await ipcRenderer.invoke('slice-model',fileToSlice,altura,extraData)
+    const resultado=await ipcRenderer.invoke('slice-model',fileToSlice,extraData)
     const horas=parseFloat(resultado.horas), gramos=parseFloat(resultado.gramos)
     const {total,desglose}=calcularPrecio(horas,gramos)
 
-    // ── Mostrar métricas totales ──
-    document.getElementById('resTiempo').textContent=resultado.tiempo
-    document.getElementById('resGramos').textContent=gramos.toFixed(2)+'g'
-    document.getElementById('resPrice').textContent=fmt(total)
+    // ── Cantidad y descuento por mayoreo ──
+    const cantidad = Math.max(1, parseInt(document.getElementById('cantidad').value) || 1)
+    const descPct  = descuentoPorCantidad(cantidad)
+    const subtotal = total * cantidad
+    const totalFinal = Math.round(subtotal * (1 - descPct / 100))
+
+    // ── Mostrar métricas totales (del pedido completo) ──
+    document.getElementById('resTiempo').textContent = cantidad > 1 ? formatHorasTotal(horas*cantidad) : resultado.tiempo
+    document.getElementById('resGramos').textContent=(gramos*cantidad).toFixed(2)+'g'
+    document.getElementById('resPrice').textContent=fmt(totalFinal)
+    document.getElementById('resPriceLabel').textContent = cantidad > 1
+      ? `Total por ${cantidad} piezas · pesos colombianos`
+      : 'Valor estimado en pesos colombianos'
     document.getElementById('resMaterialBadge').textContent=selectedFilNombre+' · '+selectedPrinter
+
+    // ── Desglose por cantidad ──
+    const qtyEl = document.getElementById('qtyBreakdown')
+    if (cantidad > 1) {
+      document.getElementById('qtyUnit').textContent  = fmt(total)
+      document.getElementById('qtyCount').textContent = cantidad + ' piezas'
+      const descRow = document.querySelector('.qty-row.qty-desc')
+      if (descPct > 0) {
+        descRow.style.display = 'flex'
+        document.getElementById('qtyDesc').textContent = `-${descPct}% (${fmt(subtotal - totalFinal)})`
+      } else {
+        descRow.style.display = 'none'
+      }
+      qtyEl.style.display = 'block'
+    } else {
+      qtyEl.style.display = 'none'
+    }
 
     // ── Sección multi-cama ──
     let multicamaEl = document.getElementById('multicamaSection')
@@ -890,7 +924,7 @@ async function procesar() {
         <div class="multicama-title">Desglose por cama (${resultado.camas.length} camas)</div>
         ${camasHTML}
         <div class="cama-total-row">
-          <span class="cama-total-lbl">Total</span>
+          <span class="cama-total-lbl">${cantidad > 1 ? 'Total por pieza' : 'Total'}</span>
           <span class="cama-total-val">${fmt(total)}</span>
         </div>`
       multicamaEl.style.display = 'block'
@@ -911,7 +945,10 @@ async function procesar() {
       impresora:   selectedPrinter,
       tiempo:      resultado.tiempo,
       gramos:      gramos.toFixed(2),
-      precio:      total,
+      cantidad,
+      precioUnitario: total,
+      descuentoPct: descPct,
+      precio:      totalFinal,
       desglose,
       thumbnail,
       camas:       resultado.camas
@@ -1223,9 +1260,14 @@ function compartirWhatsApp() {
     cliLine.trim(),
     `🎨 *Material:* ${r.material}`,
     `⚙️ *Impresora:* ${r.impresora || 'Bambu A1'}`,
-    `⏱ *Tiempo:* ${r.tiempo}`,
-    `⚖️ *Filamento:* ${r.gramos}g`,
-    `💰 *Precio:* $${Math.round(r.precio).toLocaleString('es-CO')} COP`,
+    `⏱ *Tiempo:* ${r.tiempo}${r.cantidad > 1 ? ' por pieza' : ''}`,
+    `⚖️ *Filamento:* ${r.gramos}g${r.cantidad > 1 ? ' por pieza' : ''}`,
+    ...(r.cantidad > 1 ? [
+      `🔢 *Cantidad:* ${r.cantidad} piezas`,
+      `🏷 *Precio unitario:* $${Math.round(r.precioUnitario).toLocaleString('es-CO')} COP`,
+      ...(r.descuentoPct > 0 ? [`✅ *Descuento por mayoreo:* ${r.descuentoPct}%`] : [])
+    ] : []),
+    `💰 *Precio${r.cantidad > 1 ? ' total' : ''}:* $${Math.round(r.precio).toLocaleString('es-CO')} COP`,
     '',
     '⚠️ _Precio sujeto a verificación final._',
     '',
