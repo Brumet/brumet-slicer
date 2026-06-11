@@ -44,18 +44,17 @@ function esSTLAscii(buf) {
   return inicio.trimStart().startsWith('solid') && inicio.includes('facet normal')
 }
 
+// MISMA regla de unidades que el visor 3D (viewer.html / index.html).
+// Si difieren, la cotización lamina un tamaño distinto al que el usuario ve
+// en pantalla (bug real: silla de 0.98m cotizaba como miniatura de 25mm).
 function calcularEscala(bboxMax) {
-  if (bboxMax < 0.1) {
+  if (bboxMax < 1) {
     console.log('[Brumet] Metros detectados escalando x1000')
     return 1000
   }
-  if (bboxMax < 2) {
-    console.log('[Brumet] Pulgadas pequenas detectadas escalando x25.4')
-    return 25.4
-  }
-  if (bboxMax < 25) {
-    console.log('[Brumet] Pulgadas detectadas escalando x25.4')
-    return 25.4
+  if (bboxMax < 10) {
+    console.log('[Brumet] Centimetros detectados escalando x10')
+    return 10
   }
   console.log('[Brumet] Milimetros correctos sin cambio')
   return 1
@@ -386,6 +385,15 @@ function prepararArchivo(filePath, scalePct, callback, printer) {
       bbox = {minX:minX*escala,maxX:maxX*escala,minY:minY*escala,maxY:maxY*escala,minZ:minZ*escala,maxZ:maxZ*escala}
     } else {
       bbox = calcularBboxFinal(filePath, scalePct)
+    }
+
+    // Protección: si el modelo excede la cama (256mm), avisar en vez de
+    // laminar algo que BambuStudio va a rechazar o cotizar mal.
+    const CAMA_MM = 256
+    const dimX = bbox.maxX-bbox.minX, dimY = bbox.maxY-bbox.minY, dimZ = bbox.maxZ-bbox.minZ
+    if (dimX > CAMA_MM || dimY > CAMA_MM || dimZ > CAMA_MM) {
+      callback(`El modelo mide ${Math.round(dimX)}×${Math.round(dimY)}×${Math.round(dimZ)}mm y excede la cama de impresión (${CAMA_MM}mm). Ábrelo con "Ver en 3D", ajústalo con la herramienta Escalar y vuelve a cotizar.`)
+      return
     }
 
     const {minX,maxX,minY,maxY,minZ} = bbox

@@ -962,6 +962,8 @@ async function procesar() {
     historial.unshift({ id: ahora.getTime(), ...entryLight })
     if (historial.length > 100) historial.length = 100
     await ipcRenderer.invoke('save-historial', historial)
+    // Reportar la cotización al canal de Discord (si está configurado)
+    ipcRenderer.send('log-cotizacion', entryLight)
   } catch(err) {
     if (String(err).includes('CANCELADO')) { /* cancelado por el usuario, sin alerta */ }
     else alert('Error al procesar: '+err)

@@ -33,18 +33,11 @@ const REPORT_WEBHOOK_URL = (() => {
 })()
 let ultimoEnvioWebhook = 0
 
-function enviarErrorWebhook(origen, msg) {
+function enviarWebhook(content) {
   if (!REPORT_WEBHOOK_URL) return
-  const ahora = Date.now()
-  if (ahora - ultimoEnvioWebhook < 60 * 1000) return  // máx 1 por minuto, evita spam
-  ultimoEnvioWebhook = ahora
   try {
     const https = require('https')
-    const body = JSON.stringify({
-      content: `🚨 **Brumet Slicer v${app.getVersion()}** · ${origen}\n` +
-               `Windows ${require('os').release()} · ${new Date().toLocaleString('es-CO')}\n` +
-               '```\n' + String(msg).slice(0, 1500) + '\n```'
-    })
+    const body = JSON.stringify({ content })
     const u = new URL(REPORT_WEBHOOK_URL)
     const req = https.request({
       hostname: u.hostname, path: u.pathname + u.search, method: 'POST',
@@ -57,6 +50,32 @@ function enviarErrorWebhook(origen, msg) {
     req.end()
   } catch(e) { /* nunca tumbar la app por un reporte */ }
 }
+
+function enviarErrorWebhook(origen, msg) {
+  const ahora = Date.now()
+  if (ahora - ultimoEnvioWebhook < 60 * 1000) return  // máx 1 por minuto, evita spam
+  ultimoEnvioWebhook = ahora
+  enviarWebhook(
+    `🚨 **Brumet Slicer v${app.getVersion()}** · ${origen}\n` +
+    `Windows ${require('os').release()} · ${new Date().toLocaleString('es-CO')}\n` +
+    '```\n' + String(msg).slice(0, 1500) + '\n```'
+  )
+}
+
+// Cada cotización exitosa también se reporta al canal (para detectar
+// cotizaciones sospechosas sin esperar a que el cliente avise)
+ipcMain.on('log-cotizacion', (ev, q) => {
+  if (!q) return
+  const fmt = n => '$' + Math.round(n || 0).toLocaleString('es-CO')
+  enviarWebhook(
+    `💰 **Cotización** · Brumet Slicer v${app.getVersion()}\n` +
+    `📁 ${q.archivo} · 🎨 ${q.material} · 🖨 ${q.impresora}\n` +
+    `⏱ ${q.tiempo}${q.cantidad > 1 ? ' por pieza' : ''} · ⚖️ ${q.gramos}g${q.cantidad > 1 ? ' por pieza' : ''}` +
+    (q.cantidad > 1 ? `\n🔢 ${q.cantidad} piezas · unitario ${fmt(q.precioUnitario)}${q.descuentoPct > 0 ? ` · desc ${q.descuentoPct}%` : ''}` : '') +
+    `\n💵 **Total: ${fmt(q.precio)} COP**` +
+    (q.cliente ? `\n👤 ${q.cliente}` : '')
+  )
+})
 
 process.on('uncaughtException', (e) => logError('main', 'uncaughtException: ' + (e.stack || e.message)))
 
