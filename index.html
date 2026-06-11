@@ -864,7 +864,10 @@ async function procesar() {
     const extraData={
       ...(viewerDims?{scaleX:viewerDims.sx,scaleY:viewerDims.sy,scaleZ:viewerDims.sz,scalePct:viewerDims.tempSTLPath?'100':null}:{}),
       impresora: selectedPrinter,
-      originalPath: viewerDims&&viewerDims.originalPath ? viewerDims.originalPath : undefined
+      // Si hay STL transformado del visor, ese ES el archivo a laminar (trae la
+      // escala/rotación del usuario). Pasar originalPath aquí haría que main.js
+      // lamine el archivo original sin transformar (bug: cotizaba el modelo chico).
+      originalPath: (viewerDims && !viewerDims.tempSTLPath && viewerDims.originalPath) ? viewerDims.originalPath : undefined
     }
     const resultado=await ipcRenderer.invoke('slice-model',fileToSlice,extraData)
     const horas=parseFloat(resultado.horas), gramos=parseFloat(resultado.gramos)
