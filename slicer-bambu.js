@@ -423,6 +423,15 @@ function formatTiempo(segundosTotales) {
   return h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`
 }
 
+// ── Cancelación ───────────────────────────────────────────────────────────────
+let procActual = null
+let cancelado  = false
+
+function cancelarLaminado() {
+  cancelado = true
+  if (procActual) { try { procActual.kill() } catch(e) {} }
+}
+
 function laminarConBambu(filePath, scalePct, callback, printer) {
   prepararArchivo(filePath, scalePct, (err, archivoFinal) => {
     if (err) return callback(err)
@@ -431,7 +440,9 @@ function laminarConBambu(filePath, scalePct, callback, printer) {
     if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath)
     if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true })
 
+    cancelado = false
     const proc = spawn(BAMBU_EXE, ['--slice', '1', '--outputdir', OUTPUT_DIR, archivoFinal])
+    procActual = proc
     let stderr = ''
     proc.stdout.on('data', () => {})           // drenar stdout para evitar bloqueo en Windows
     proc.stderr.on('data', d => stderr += d.toString())
@@ -444,6 +455,8 @@ function laminarConBambu(filePath, scalePct, callback, printer) {
 
     proc.on('close', (code) => {
       clearTimeout(timer)
+      procActual = null
+      if (cancelado) return callback('CANCELADO')
       if (!fs.existsSync(resultPath)) return callback('BambuStudio no generó result.json. ' + stderr)
       try {
         const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'))
@@ -482,5 +495,5 @@ function laminarConBambu(filePath, scalePct, callback, printer) {
   }, printer)
 }
 
-module.exports = { laminarConBambu }
+module.exports = { laminarConBambu, cancelarLaminado }
 

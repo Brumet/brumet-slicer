@@ -155,6 +155,8 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
 .btn-process:disabled{background:var(--txt3);cursor:not-allowed;transform:none;box-shadow:none}
 .spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:8px}
 .progress-msg{text-align:center;font-size:12px;color:var(--txt2);margin-top:8px;display:none;animation:pulse 1.5s ease infinite;letter-spacing:.05em}
+.btn-cancel{display:block;margin:10px auto 0;padding:6px 22px;background:transparent;border:1px solid var(--bdr);border-radius:20px;color:var(--txt2);font-size:11px;font-weight:600;letter-spacing:.08em;cursor:pointer;font-family:'Inter',sans-serif;transition:all .2s}
+.btn-cancel:hover{border-color:#ef4444;color:#ef4444}
 
 /* ── Result ── */
 .result{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);overflow:hidden;display:none;box-shadow:var(--shd);animation:springUp .5s cubic-bezier(0.34,1.56,0.64,1) both}
@@ -281,6 +283,10 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
 /* ── Historial modal ── */
 .hist-modal{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);width:100%;max-width:520px;max-height:78vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,0,0,0.5);animation:springUp .4s cubic-bezier(0.34,1.56,0.64,1)}
 .hist-list{overflow-y:auto;flex:1}
+.hist-search{padding:10px 20px 4px}
+.hist-search input{width:100%;padding:8px 14px;background:var(--surf);border:1px solid var(--bdr);border-radius:20px;color:var(--txt);font-size:12px;font-family:'Inter',sans-serif;outline:none;transition:border-color .2s}
+.hist-search input:focus{border-color:var(--gold)}
+.hist-search input::placeholder{color:var(--txt3)}
 .hist-list::-webkit-scrollbar{width:4px}
 .hist-list::-webkit-scrollbar-thumb{background:var(--bdr2);border-radius:2px}
 .hist-entry{padding:13px 18px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:12px;transition:background .15s}
@@ -371,6 +377,9 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
       <button class="icon-btn" onclick="openHistorial()" title="Historial de cotizaciones" aria-label="Historial">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
       </button>
+      <button class="icon-btn" onclick="reportarProblema()" title="Reportar un problema" aria-label="Reportar problema">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      </button>
       <button class="icon-btn" id="updateIconBtn" onclick="checkUpdatesManual()" title="Buscar actualizaciones" aria-label="Actualizaciones">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/></svg>
       </button>
@@ -436,6 +445,7 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
 
     <button class="btn-process" id="btnProcess" onclick="procesar()">Calcular Cotizacion</button>
     <div class="progress-msg" id="progressMsg">Procesando modelo... puede tardar 1-2 minutos</div>
+    <button class="btn-cancel" id="btnCancel" onclick="cancelarProceso()" style="display:none">Cancelar</button>
 
     <div class="result" id="result">
       <div class="result-header">
@@ -494,6 +504,9 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
       <button class="modal-close" onclick="closeHistorial()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
+    </div>
+    <div class="hist-search">
+      <input type="text" id="histSearch" placeholder="Buscar por archivo, cliente o material..." oninput="filtrarHistorial()">
     </div>
     <div class="hist-list" id="historialContent"></div>
     <div class="hist-clear" id="histClearRow" style="display:none">
@@ -836,6 +849,7 @@ async function procesar() {
   const altura=document.getElementById('altura').value||100
   const btn=document.getElementById('btnProcess'), msg=document.getElementById('progressMsg')
   btn.innerHTML='<span class="spinner"></span> Procesando...'; btn.disabled=true; msg.style.display='block'
+  document.getElementById('btnCancel').style.display='block'
   document.getElementById('result').style.display='none'
   try {
     const fileToSlice=(viewerDims&&viewerDims.tempSTLPath)?viewerDims.tempSTLPath:currentFilePath
@@ -906,10 +920,23 @@ async function procesar() {
     const historial = await ipcRenderer.invoke('load-historial')
     const { thumbnail: _t, desglose: _d, camas: _c, ...entryLight } = lastResult
     historial.unshift({ id: ahora.getTime(), ...entryLight })
-    if (historial.length > 20) historial.length = 20
+    if (historial.length > 100) historial.length = 100
     await ipcRenderer.invoke('save-historial', historial)
-  } catch(err) { alert('Error al procesar: '+err) }
-  finally { btn.innerHTML='Calcular Cotizacion'; btn.disabled=false; msg.style.display='none' }
+  } catch(err) {
+    if (String(err).includes('CANCELADO')) { /* cancelado por el usuario, sin alerta */ }
+    else alert('Error al procesar: '+err)
+  }
+  finally {
+    btn.innerHTML='Calcular Cotizacion'; btn.disabled=false; msg.style.display='none'
+    document.getElementById('btnCancel').style.display='none'
+  }
+}
+
+function cancelarProceso() {
+  document.getElementById('btnCancel').disabled = true
+  ipcRenderer.invoke('cancel-slice').finally(() => {
+    document.getElementById('btnCancel').disabled = false
+  })
 }
 
 // ── Export ─────────────────────────────────────────────────────────────────
@@ -1103,23 +1130,39 @@ function initPrinterSel() {
 }
 
 // ── Historial ──────────────────────────────────────────────────────────────
+let historialCache = []
+
 async function openHistorial() {
-  const historial = await ipcRenderer.invoke('load-historial')
-  renderHistorial(historial)
+  historialCache = await ipcRenderer.invoke('load-historial')
+  document.getElementById('histSearch').value = ''
+  renderHistorial(historialCache)
   document.getElementById('historialModal').classList.add('open')
 }
 function closeHistorial() { document.getElementById('historialModal').classList.remove('open') }
 
-function renderHistorial(historial) {
+function filtrarHistorial() {
+  const q = document.getElementById('histSearch').value.toLowerCase().trim()
+  if (!q) { renderHistorial(historialCache); return }
+  renderHistorial(historialCache.filter(e =>
+    (e.archivo || '').toLowerCase().includes(q) ||
+    (e.cliente || '').toLowerCase().includes(q) ||
+    (e.material || '').toLowerCase().includes(q) ||
+    (e.impresora || '').toLowerCase().includes(q)
+  ), true)
+}
+
+function renderHistorial(historial, esFiltro) {
   const c   = document.getElementById('historialContent')
   const row = document.getElementById('histClearRow')
   if (!historial || historial.length === 0) {
-    c.innerHTML = `<div class="hist-empty"><div class="hist-empty-icon">📋</div>Sin cotizaciones aún.<br>Aquí aparecerán tus últimas 20 cotizaciones.</div>`
+    c.innerHTML = esFiltro
+      ? `<div class="hist-empty"><div class="hist-empty-icon">🔍</div>Sin resultados para esa búsqueda.</div>`
+      : `<div class="hist-empty"><div class="hist-empty-icon">📋</div>Sin cotizaciones aún.<br>Aquí aparecerán tus últimas cotizaciones.</div>`
     row.style.display = 'none'
     return
   }
   row.style.display = 'flex'
-  c.innerHTML = historial.map((e, i) => `
+  c.innerHTML = historial.map(e => `
     <div class="hist-entry">
       <div class="hist-info">
         <div class="hist-date">${e.fechaDisplay || e.fecha}</div>
@@ -1130,23 +1173,42 @@ function renderHistorial(historial) {
         <div class="hist-price">$${Math.round(e.precio).toLocaleString('es-CO')}</div>
         <div class="hist-mat">${e.material}${e.impresora && e.cliente ? ' · ' + e.impresora : ''}</div>
       </div>
-      <button class="hist-del" onclick="event.stopPropagation();deleteHistorialEntry(${i})" title="Eliminar">
+      <button class="hist-del" onclick="event.stopPropagation();deleteHistorialEntry(${e.id})" title="Eliminar">
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>`).join('')
 }
 
-async function deleteHistorialEntry(idx) {
+async function deleteHistorialEntry(id) {
   let historial = await ipcRenderer.invoke('load-historial')
-  historial.splice(idx, 1)
+  historial = historial.filter(e => e.id !== id)
   await ipcRenderer.invoke('save-historial', historial)
-  renderHistorial(historial)
+  historialCache = historial
+  filtrarHistorial()
 }
 
 async function clearHistorial() {
   if (!confirm('¿Borrar todo el historial? Esta acción no se puede deshacer.')) return
   await ipcRenderer.invoke('save-historial', [])
+  historialCache = []
   renderHistorial([])
+}
+
+// ── Reporte de problemas ───────────────────────────────────────────────────
+window.addEventListener('error', e => {
+  try { ipcRenderer.send('log-error', 'renderer', (e.message||'') + ' @ ' + (e.filename||'') + ':' + (e.lineno||'')) } catch(_){}
+})
+window.addEventListener('unhandledrejection', e => {
+  try { ipcRenderer.send('log-error', 'renderer', 'unhandledrejection: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)) } catch(_){}
+})
+
+async function reportarProblema() {
+  const r = await ipcRenderer.invoke('report-problem')
+  if (r && r.ok) {
+    alert('Reporte copiado al portapapeles ✓\n\nPégalo (Ctrl+V) en el chat de WhatsApp o correo de soporte de Brumet.\nTambién se abrió la carpeta con el archivo de registro por si lo necesitas adjuntar.')
+  } else {
+    alert('No se pudo generar el reporte: ' + (r && r.error || 'error desconocido'))
+  }
 }
 
 // ── WhatsApp share ─────────────────────────────────────────────────────────

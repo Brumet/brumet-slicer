@@ -1,9 +1,46 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, clipboard, shell } = require('electron')
 const path = require('path')
 const fs   = require('fs')
 
 let mainWin  = null
 let viewerWin = null
+
+// ── Log de errores a archivo ──────────────────────────────────────────────────
+const LOG_DIR  = () => path.join(app.getPath('userData'), 'logs')
+const LOG_FILE = () => path.join(LOG_DIR(), 'brumet.log')
+
+function logError(origen, msg) {
+  try {
+    const dir = LOG_DIR(), file = LOG_FILE()
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+    // Rotar si pasa de 512 KB (conservar una copia anterior)
+    if (fs.existsSync(file) && fs.statSync(file).size > 512 * 1024) {
+      const old = path.join(dir, 'brumet.old.log')
+      if (fs.existsSync(old)) fs.unlinkSync(old)
+      fs.renameSync(file, old)
+    }
+    fs.appendFileSync(file, `[${new Date().toISOString()}] [v${app.getVersion()}] [${origen}] ${msg}\n`)
+  } catch(e) { /* el logger nunca debe tumbar la app */ }
+}
+
+process.on('uncaughtException', (e) => logError('main', 'uncaughtException: ' + (e.stack || e.message)))
+
+ipcMain.on('log-error', (ev, origen, msg) => logError(origen || 'renderer', msg))
+
+ipcMain.handle('report-problem', () => {
+  try {
+    const file = LOG_FILE()
+    let contenido = 'Sin errores registrados.'
+    if (fs.existsSync(file)) {
+      const lineas = fs.readFileSync(file, 'utf8').trim().split('\n')
+      contenido = lineas.slice(-100).join('\n')
+    }
+    const reporte = `=== Reporte Brumet Slicer v${app.getVersion()} ===\nWindows: ${require('os').release()}\nFecha: ${new Date().toLocaleString('es-CO')}\n\n${contenido}`
+    clipboard.writeText(reporte)
+    if (fs.existsSync(file)) shell.showItemInFolder(file)
+    return { ok: true }
+  } catch(e) { return { error: e.message } }
+})
 
 // ── Auto-updater ──────────────────────────────────────────────────────────────
 let autoUpdater = null
@@ -22,7 +59,10 @@ function setupUpdater(win) {
   autoUpdater.on('update-not-available',  ()  => win.webContents.send('update-status', {type:'up-to-date'}))
   autoUpdater.on('download-progress',     (p) => win.webContents.send('update-status', {type:'progress', percent: Math.round(p.percent)}))
   autoUpdater.on('update-downloaded',     ()  => win.webContents.send('update-status', {type:'ready'}))
-  autoUpdater.on('error',                 (e) => win.webContents.send('update-status', {type:'error', msg: e.message}))
+  autoUpdater.on('error',                 (e) => {
+    logError('updater', e.message)
+    win.webContents.send('update-status', {type:'error', msg: e.message})
+  })
 }
 
 // ── Ventana principal ─────────────────────────────────────────────────────────
@@ -134,7 +174,9 @@ ipcMain.on('sync-file', (event, filePath) => {
 })
 
 // ── Motor de laminado ─────────────────────────────────────────────────────────
-const { laminarConBambu } = require('./slicer-bambu.js')
+const { laminarConBambu, cancelarLaminado } = require('./slicer-bambu.js')
+
+ipcMain.handle('cancel-slice', () => { cancelarLaminado(); return true })
 
 ipcMain.handle('slice-model', async (event, filePath, heightMM, extraData) => {
 
@@ -143,7 +185,10 @@ ipcMain.handle('slice-model', async (event, filePath, heightMM, extraData) => {
     const originalPath= extraData && extraData.originalPath ? extraData.originalPath : filePath
     const printer     = extraData && extraData.impresora  ? extraData.impresora : 'Bambu A1'
     laminarConBambu(originalPath, scalePct, (err, resultado) => {
-      if (err) { reject(err); return }
+      if (err) {
+        if (err !== 'CANCELADO') logError('slicer', `${path.basename(originalPath)} [${printer}]: ${err}`)
+        reject(err); return
+      }
       resolve(resultado)
     }, printer)
   })
