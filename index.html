@@ -173,6 +173,10 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
 .btn-aprobar{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 16px 14px;width:calc(100% - 32px);height:42px;border-radius:var(--rx);border:none;background:#16a34a;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;letter-spacing:.06em;text-transform:uppercase;transition:all .2s}
 .btn-aprobar:hover{background:#15803d}
 .btn-aprobar:disabled{background:var(--txt3);cursor:default}
+.marca-logo-row{display:flex;align-items:center;gap:12px;padding:10px 0 4px}
+.marca-logo-row img{height:40px;max-width:160px;object-fit:contain;border:1px solid var(--bdr);border-radius:6px;padding:3px;background:#fff}
+.marca-logo-empty{font-size:11px;color:var(--txt3);flex:1}
+.marca-logo-btns{display:flex;gap:8px;margin-left:auto}
 .btn-exp:hover{border-color:var(--red);color:var(--red);transform:translateY(-1px)}
 .btn-exp svg{width:13px;height:13px;flex-shrink:0}
 
@@ -526,6 +530,24 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
       <button class="modal-close" onclick="closeSettings()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
     </div>
     <div class="modal-body">
+      <div class="cfg-section">Marca del negocio (PDF, WhatsApp y app)</div>
+      <div class="cfg-grid">
+        <div class="cfg-field"><label>Nombre del negocio</label><input type="text" id="cfg-marcaNombre" placeholder="Brumet"></div>
+        <div class="cfg-field"><label>Color de marca</label><input type="color" id="cfg-marcaColor" value="#E0313A" style="height:36px;padding:2px;cursor:pointer"></div>
+      </div>
+      <div class="cfg-grid">
+        <div class="cfg-field"><label>Subtitulo / eslogan</label><input type="text" id="cfg-marcaSubtitulo" placeholder="Cotizador de Impresión 3D · Bogotá, Colombia"></div>
+        <div class="cfg-field"><label>Contacto (footer del PDF)</label><input type="text" id="cfg-marcaContacto" placeholder="@brumet.co · 310 607 8712"></div>
+      </div>
+      <div class="marca-logo-row">
+        <img id="marcaLogoPreview" style="display:none" alt="Logo">
+        <span id="marcaLogoEmpty" class="marca-logo-empty">Sin logo — se usa el nombre del negocio</span>
+        <div class="marca-logo-btns">
+          <button class="btn-add-mat" onclick="document.getElementById('marcaLogoFile').click()" type="button">Subir logo</button>
+          <button class="btn-add-mat" id="btnQuitarLogo" onclick="quitarLogo()" type="button" style="display:none">Quitar</button>
+        </div>
+        <input type="file" id="marcaLogoFile" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="cargarLogo(this)">
+      </div>
       <div class="cfg-section">Energia y consumo</div>
       <div class="cfg-grid">
         <div class="cfg-field"><label>Potencia impresora (W)</label><input type="number" id="cfg-energiaW" placeholder="225"></div>
@@ -578,7 +600,8 @@ let cfg = {
     {nombre:'Básico',desc:'Blanco, negro, colores sólidos simples',precio:70000},
     {nombre:'Premium',desc:'Galaxia, tornasol, escarchado, mármol',precio:85000},
     {nombre:'Ultra Premium',desc:'TPU, PETG, ABS, fibra de carbono',precio:110000}
-  ]
+  ],
+  marca:{nombre:'Brumet',subtitulo:'Cotizador de Impresión 3D · Bogotá, Colombia',contacto:'@brumet.co · 310 607 8712',color:'#E0313A',logo:''}
 }
 
 // ── Theme ──────────────────────────────────────────────────────────────────
@@ -1014,7 +1037,7 @@ async function aprobarCotizacion() {
 // ── Export ─────────────────────────────────────────────────────────────────
 async function exportarPDF() {
   if (!lastResult) { alert('Primero genera una cotizacion.'); return }
-  const r=await ipcRenderer.invoke('export-pdf',lastResult)
+  const r=await ipcRenderer.invoke('export-pdf',{...lastResult, marca: cfg.marca})
   if (r&&r.success) alert('PDF guardado en:\n'+r.path)
 }
 
@@ -1046,9 +1069,50 @@ function openSettingsModal() {
   document.getElementById('cfg-costoMaquinado').value=cfg.costoMaquinado
   document.getElementById('cfg-margenPct').value=cfg.margenPct
   document.getElementById('cfg-markup').value=cfg.markup
+  document.getElementById('cfg-marcaNombre').value=cfg.marca.nombre
+  document.getElementById('cfg-marcaSubtitulo').value=cfg.marca.subtitulo
+  document.getElementById('cfg-marcaContacto').value=cfg.marca.contacto
+  document.getElementById('cfg-marcaColor').value=cfg.marca.color||'#E0313A'
+  renderLogoPreview()
   renderMaterialRows()
   document.getElementById('settingsModal').classList.add('open')
 }
+
+function renderLogoPreview() {
+  const img = document.getElementById('marcaLogoPreview')
+  const empty = document.getElementById('marcaLogoEmpty')
+  const quitar = document.getElementById('btnQuitarLogo')
+  if (cfg.marca.logo) {
+    img.src = cfg.marca.logo; img.style.display='block'
+    empty.style.display='none'; quitar.style.display='inline-flex'
+  } else {
+    img.style.display='none'; empty.style.display='block'; quitar.style.display='none'
+  }
+}
+
+function cargarLogo(input) {
+  const file = input.files[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    const im = new Image()
+    im.onload = () => {
+      // Reducir a máx 240px de alto para que settings.json no crezca demasiado
+      const escala = Math.min(1, 240 / im.height)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.round(im.width * escala)
+      canvas.height = Math.round(im.height * escala)
+      canvas.getContext('2d').drawImage(im, 0, 0, canvas.width, canvas.height)
+      cfg.marca.logo = canvas.toDataURL('image/png')
+      renderLogoPreview()
+    }
+    im.src = reader.result
+  }
+  reader.readAsDataURL(file)
+  input.value = ''
+}
+
+function quitarLogo() { cfg.marca.logo=''; renderLogoPreview() }
 function closeSettings() { document.getElementById('settingsModal').classList.remove('open') }
 
 function renderMaterialRows() {
@@ -1073,10 +1137,51 @@ async function saveSettings() {
   cfg.costoMaquinado =parseFloat(document.getElementById('cfg-costoMaquinado').value)||1000
   cfg.margenPct      =parseFloat(document.getElementById('cfg-margenPct').value)||0
   cfg.markup         =parseFloat(document.getElementById('cfg-markup').value)||2.0
+  cfg.marca.nombre    =document.getElementById('cfg-marcaNombre').value.trim()||'Brumet'
+  cfg.marca.subtitulo =document.getElementById('cfg-marcaSubtitulo').value.trim()
+  cfg.marca.contacto  =document.getElementById('cfg-marcaContacto').value.trim()
+  cfg.marca.color     =document.getElementById('cfg-marcaColor').value||'#E0313A'
   await ipcRenderer.invoke('save-settings',cfg)
-  renderFilamentos(); closeSettings()
+  renderFilamentos(); aplicarMarca(); closeSettings()
 }
-async function initSettings() { cfg=await ipcRenderer.invoke('load-settings'); renderFilamentos() }
+async function initSettings() { cfg=await ipcRenderer.invoke('load-settings'); renderFilamentos(); aplicarMarca() }
+
+// ── Aplicar marca al header de la app ───────────────────────────────────────
+function aplicarMarca() {
+  const m = cfg.marca || {}
+  const sub = document.querySelector('.logo-sub')
+  if (sub && m.subtitulo) sub.textContent = m.subtitulo
+  const brand = document.querySelector('.header-brand')
+  if (!brand) return
+  const svg = brand.querySelector('svg')
+  let img = document.getElementById('brandLogoImg')
+  let txt = document.getElementById('brandLogoTxt')
+  if (m.logo) {
+    if (svg) svg.style.display = 'none'
+    if (txt) txt.style.display = 'none'
+    if (!img) {
+      img = document.createElement('img')
+      img.id = 'brandLogoImg'
+      img.style.cssText = 'height:30px;width:auto;max-width:140px;object-fit:contain'
+      brand.insertBefore(img, brand.firstChild)
+    }
+    img.src = m.logo; img.style.display = 'block'
+  } else if (m.nombre && m.nombre !== 'Brumet') {
+    if (svg) svg.style.display = 'none'
+    if (img) img.style.display = 'none'
+    if (!txt) {
+      txt = document.createElement('div')
+      txt.id = 'brandLogoTxt'
+      txt.style.cssText = 'font-family:\'Bebas Neue\',sans-serif;font-size:24px;letter-spacing:.06em;color:var(--red);line-height:1'
+      brand.insertBefore(txt, brand.firstChild)
+    }
+    txt.textContent = m.nombre; txt.style.display = 'block'
+  } else {
+    if (svg) svg.style.display = ''
+    if (img) img.style.display = 'none'
+    if (txt) txt.style.display = 'none'
+  }
+}
 
 // ── License overlay (activar durante trial) ────────────────────────────────
 function showLicenseOverlay() {
@@ -1288,8 +1393,9 @@ function compartirWhatsApp() {
   if (!lastResult) { alert('Primero genera una cotizacion.'); return }
   const r = lastResult
   const cliLine = r.cliente ? `👤 *Cliente:* ${r.cliente}\n` : ''
+  const m = cfg.marca || {}
   const msg = [
-    '🖨️ *Cotización Brumet*',
+    `🖨️ *Cotización ${m.nombre || 'Brumet'}*`,
     '',
     `📁 *Archivo:* ${r.archivo}`,
     cliLine.trim(),
@@ -1306,7 +1412,7 @@ function compartirWhatsApp() {
     '',
     '⚠️ _Precio sujeto a verificación final._',
     '',
-    '_Brumet · Bogotá · 310 607 8712_'
+    `_${m.nombre || 'Brumet'}${m.contacto ? ' · ' + m.contacto : ''}_`
   ].filter(l => l !== undefined && !(l === '' && false)).join('\n').replace(/\n{3,}/g, '\n\n')
   const url = `https://wa.me/?text=${encodeURIComponent(msg)}`
   require('electron').shell.openExternal(url)
