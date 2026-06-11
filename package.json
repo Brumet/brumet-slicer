@@ -1,6 +1,6 @@
 {
   "name": "brumet-slicer",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Cotizador de impresion 3D Brumet",
   "main": "main.js",
   "scripts": {

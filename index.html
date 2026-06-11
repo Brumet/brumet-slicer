@@ -170,6 +170,9 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
 .disclaimer-icon{flex-shrink:0;margin-top:1px;color:var(--gold)}
 .export-row{display:flex;gap:8px;padding:12px 16px}
 .btn-exp{flex:1;height:38px;border-radius:var(--rx);border:1px solid var(--bdr2);background:transparent;color:var(--txt2);font-size:11px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;letter-spacing:.05em;text-transform:uppercase;display:flex;align-items:center;justify-content:center;gap:6px;transition:all .2s}
+.btn-aprobar{display:flex;align-items:center;justify-content:center;gap:8px;margin:0 16px 14px;width:calc(100% - 32px);height:42px;border-radius:var(--rx);border:none;background:#16a34a;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:'Inter',sans-serif;letter-spacing:.06em;text-transform:uppercase;transition:all .2s}
+.btn-aprobar:hover{background:#15803d}
+.btn-aprobar:disabled{background:var(--txt3);cursor:default}
 .btn-exp:hover{border-color:var(--red);color:var(--red);transform:translateY(-1px)}
 .btn-exp svg{width:13px;height:13px;flex-shrink:0}
 
@@ -471,6 +474,10 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
           WhatsApp
         </button>
       </div>
+      <button class="btn-aprobar" id="btnAprobar" onclick="aprobarCotizacion()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><polyline points="20 6 9 17 4 12"/></svg>
+        Aprobar pedido y enviar a Brumet
+      </button>
     </div>
 
     <div class="footer">
@@ -952,10 +959,15 @@ async function procesar() {
       precioUnitario: total,
       descuentoPct: descPct,
       precio:      totalFinal,
+      archivoPath: fileToSlice,
       desglose,
       thumbnail,
       camas:       resultado.camas
     }
+    // Resetear botón de aprobar para la nueva cotización
+    const btnA = document.getElementById('btnAprobar')
+    btnA.disabled = false
+    btnA.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><polyline points="20 6 9 17 4 12"/></svg> Aprobar pedido y enviar a Brumet'
     // ── Guardar en historial (sin thumbnail para ahorrar espacio) ──
     const historial = await ipcRenderer.invoke('load-historial')
     const { thumbnail: _t, desglose: _d, camas: _c, ...entryLight } = lastResult
@@ -979,6 +991,24 @@ function cancelarProceso() {
   ipcRenderer.invoke('cancel-slice').finally(() => {
     document.getElementById('btnCancel').disabled = false
   })
+}
+
+// ── Aprobar pedido (envía cotización + STL al Discord de Brumet) ───────────
+async function aprobarCotizacion() {
+  if (!lastResult) { alert('Primero genera una cotizacion.'); return }
+  const btn = document.getElementById('btnAprobar')
+  btn.disabled = true
+  btn.textContent = 'Enviando pedido...'
+  const { thumbnail: _t, desglose: _d, camas: _c, ...datos } = lastResult
+  const r = await ipcRenderer.invoke('aprobar-cotizacion', datos)
+  if (r && r.ok) {
+    btn.textContent = r.conArchivo ? '✓ Pedido enviado con tu modelo 3D' : '✓ Pedido enviado'
+    if (!r.conArchivo) alert('Pedido enviado ✓\n\nEl archivo 3D supera el límite de envío automático — Brumet te lo pedirá por WhatsApp si lo necesita.')
+  } else {
+    btn.disabled = false
+    btn.textContent = 'Aprobar pedido y enviar a Brumet'
+    alert('No se pudo enviar el pedido: ' + (r && r.error || 'sin conexión') + '\n\nIntenta de nuevo o contacta a Brumet por WhatsApp.')
+  }
 }
 
 // ── Export ─────────────────────────────────────────────────────────────────

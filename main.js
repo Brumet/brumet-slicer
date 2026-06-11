@@ -62,6 +62,71 @@ function enviarErrorWebhook(origen, msg) {
   )
 }
 
+// POST multipart al webhook con archivo adjunto (límite Discord: 10 MB)
+function enviarWebhookConArchivo(content, filename, buffer) {
+  return new Promise((resolve) => {
+    if (!REPORT_WEBHOOK_URL) return resolve(false)
+    try {
+      const https = require('https')
+      const u = new URL(REPORT_WEBHOOK_URL)
+      const boundary = '----BrumetBoundary' + Date.now()
+      const pre = Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="payload_json"\r\nContent-Type: application/json\r\n\r\n` +
+        JSON.stringify({ content }) + `\r\n` +
+        `--${boundary}\r\nContent-Disposition: form-data; name="files[0]"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`
+      )
+      const body = Buffer.concat([pre, buffer, Buffer.from(`\r\n--${boundary}--\r\n`)])
+      const req = https.request({
+        hostname: u.hostname, path: u.pathname + u.search, method: 'POST',
+        headers: { 'Content-Type': 'multipart/form-data; boundary=' + boundary, 'Content-Length': body.length },
+        timeout: 120000
+      }, res => { res.resume(); resolve(res.statusCode >= 200 && res.statusCode < 300) })
+      req.on('error', () => resolve(false))
+      req.on('timeout', () => { req.destroy(); resolve(false) })
+      req.write(body)
+      req.end()
+    } catch(e) { resolve(false) }
+  })
+}
+
+// Pedido aprobado por el cliente: info completa + STL adjunto (zipeado).
+// Si el ZIP excede el límite de Discord, llega el mensaje sin archivo.
+const DISCORD_MAX_BYTES = 9.5 * 1024 * 1024
+ipcMain.handle('aprobar-cotizacion', async (ev, q) => {
+  if (!REPORT_WEBHOOK_URL) return { error: 'Canal de pedidos no configurado' }
+  try {
+    const fmt = n => '$' + Math.round(n || 0).toLocaleString('es-CO')
+    let contenido =
+      `🟢 **PEDIDO APROBADO** · Brumet Slicer v${app.getVersion()}\n` +
+      `📁 ${q.archivo}\n` +
+      (q.cliente ? `👤 ${q.cliente}\n` : '') +
+      `🎨 ${q.material} · 🖨 ${q.impresora}\n` +
+      `⏱ ${q.tiempo}${q.cantidad > 1 ? ' por pieza' : ''} · ⚖️ ${q.gramos}g${q.cantidad > 1 ? ' por pieza' : ''}\n` +
+      (q.cantidad > 1 ? `🔢 ${q.cantidad} piezas · unitario ${fmt(q.precioUnitario)}${q.descuentoPct > 0 ? ` · desc ${q.descuentoPct}%` : ''}\n` : '') +
+      `💵 **Total: ${fmt(q.precio)} COP**\n` +
+      `📅 ${new Date().toLocaleString('es-CO')}`
+
+    if (q.archivoPath && fs.existsSync(q.archivoPath)) {
+      const AdmZip = require('adm-zip')
+      const zip = new AdmZip()
+      // El archivo enviado es el que se cotizó (con la escala del visor aplicada)
+      zip.addFile(q.archivo, fs.readFileSync(q.archivoPath))
+      const zipBuf = zip.toBuffer()
+      if (zipBuf.length <= DISCORD_MAX_BYTES) {
+        const ok = await enviarWebhookConArchivo(contenido, q.archivo.replace(/\.[^.]+$/, '') + '.zip', zipBuf)
+        if (ok) return { ok: true, conArchivo: true }
+        // si falla el adjunto, intentar al menos el mensaje
+      } else {
+        contenido += `\n⚠️ El STL pesa ${(fs.statSync(q.archivoPath).size / 1048576).toFixed(1)} MB (supera el límite de 10 MB de Discord) — pídeselo al cliente por WhatsApp/correo.`
+      }
+    } else {
+      contenido += `\n⚠️ No se encontró el archivo del modelo para adjuntar.`
+    }
+    enviarWebhook(contenido)
+    return { ok: true, conArchivo: false }
+  } catch(e) { return { error: e.message } }
+})
+
 // Cada cotización exitosa también se reporta al canal (para detectar
 // cotizaciones sospechosas sin esperar a que el cliente avise)
 ipcMain.on('log-cotizacion', (ev, q) => {
