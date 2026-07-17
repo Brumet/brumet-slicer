@@ -188,7 +188,7 @@ function setupUpdater(win) {
 function createWindow() {
   mainWin = new BrowserWindow({
     width: 900, height: 800, minWidth: 700, minHeight: 600,
-    webPreferences: { nodeIntegration: true, contextIsolation: false },
+    webPreferences: { nodeIntegration: true, contextIsolation: false, devTools: !app.isPackaged },
     title: 'Brumet · Cotizador 3D',
     icon: path.join(__dirname, 'assets', 'icon.png'),
   })
@@ -243,7 +243,7 @@ ipcMain.on('open-viewer', (event, filePath) => {
   }
   viewerWin = new BrowserWindow({
     width: 1200, height: 750, minWidth: 900, minHeight: 550,
-    webPreferences: { nodeIntegration: true, contextIsolation: false },
+    webPreferences: { nodeIntegration: true, contextIsolation: false, devTools: !app.isPackaged },
     title: 'Brumet · Visor 3D',
     icon: path.join(__dirname, 'assets', 'icon.png'),
   })
