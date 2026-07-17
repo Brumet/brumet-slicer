@@ -548,35 +548,37 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
         </div>
         <input type="file" id="marcaLogoFile" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="cargarLogo(this)">
       </div>
-      <div class="cfg-section">Energia y consumo</div>
-      <div class="cfg-grid">
-        <div class="cfg-field"><label>Potencia impresora (W)</label><input type="number" id="cfg-energiaW" placeholder="225"></div>
-        <div class="cfg-field"><label>Tarifa electrica (COP/kWh)</label><input type="number" id="cfg-tarifaEnergia" placeholder="1000"></div>
+      <div id="cfg-advancedSections">
+        <div class="cfg-section">Energia y consumo</div>
+        <div class="cfg-grid">
+          <div class="cfg-field"><label>Potencia impresora (W)</label><input type="number" id="cfg-energiaW" placeholder="225"></div>
+          <div class="cfg-field"><label>Tarifa electrica (COP/kWh)</label><input type="number" id="cfg-tarifaEnergia" placeholder="1000"></div>
+        </div>
+        <div class="cfg-section">Desgaste de maquina</div>
+        <div class="cfg-grid">
+          <div class="cfg-field"><label>Costo total maquina (COP)</label><input type="number" id="cfg-desgasteTotal" placeholder="3000000"></div>
+          <div class="cfg-field"><label>Vida util (horas)</label><input type="number" id="cfg-horasDesgaste" placeholder="74627"></div>
+        </div>
+        <div class="cfg-section">Costos por hora (COP/h)</div>
+        <div class="cfg-grid">
+          <div class="cfg-field"><label>Operario</label><input type="number" id="cfg-operarioPorHora" placeholder="600"></div>
+          <div class="cfg-field"><label>Espacio / arrendamiento</label><input type="number" id="cfg-espacioPorHora" placeholder="350"></div>
+        </div>
+        <div class="cfg-section">Costos fijos por impresion (COP)</div>
+        <div class="cfg-grid">
+          <div class="cfg-field"><label>Montaje y preparacion</label><input type="number" id="cfg-costoMontaje" placeholder="2500"></div>
+          <div class="cfg-field"><label>Post-procesado</label><input type="number" id="cfg-costoMaquinado" placeholder="1000"></div>
+        </div>
+        <div class="cfg-section">Multiplicador de precio</div>
+        <div class="cfg-grid">
+          <div class="cfg-field"><label>Margen adicional (%)</label><input type="number" id="cfg-margenPct" placeholder="0" step="0.5"></div>
+          <div class="cfg-field"><label>Multiplicador (x2 = doble del costo)</label><input type="number" id="cfg-markup" placeholder="2.0" step="0.1"></div>
+        </div>
+        <div class="cfg-section">Materiales / perfiles de filamento</div>
+        <div class="mat-header"><span>Nombre</span><span>Descripcion</span><span>$/kg</span><span></span></div>
+        <div id="matRows"></div>
+        <button class="btn-add-mat" onclick="addMaterial()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Agregar material</button>
       </div>
-      <div class="cfg-section">Desgaste de maquina</div>
-      <div class="cfg-grid">
-        <div class="cfg-field"><label>Costo total maquina (COP)</label><input type="number" id="cfg-desgasteTotal" placeholder="3000000"></div>
-        <div class="cfg-field"><label>Vida util (horas)</label><input type="number" id="cfg-horasDesgaste" placeholder="74627"></div>
-      </div>
-      <div class="cfg-section">Costos por hora (COP/h)</div>
-      <div class="cfg-grid">
-        <div class="cfg-field"><label>Operario</label><input type="number" id="cfg-operarioPorHora" placeholder="600"></div>
-        <div class="cfg-field"><label>Espacio / arrendamiento</label><input type="number" id="cfg-espacioPorHora" placeholder="350"></div>
-      </div>
-      <div class="cfg-section">Costos fijos por impresion (COP)</div>
-      <div class="cfg-grid">
-        <div class="cfg-field"><label>Montaje y preparacion</label><input type="number" id="cfg-costoMontaje" placeholder="2500"></div>
-        <div class="cfg-field"><label>Post-procesado</label><input type="number" id="cfg-costoMaquinado" placeholder="1000"></div>
-      </div>
-      <div class="cfg-section">Multiplicador de precio</div>
-      <div class="cfg-grid">
-        <div class="cfg-field"><label>Margen adicional (%)</label><input type="number" id="cfg-margenPct" placeholder="0" step="0.5"></div>
-        <div class="cfg-field"><label>Multiplicador (x2 = doble del costo)</label><input type="number" id="cfg-markup" placeholder="2.0" step="0.1"></div>
-      </div>
-      <div class="cfg-section">Materiales / perfiles de filamento</div>
-      <div class="mat-header"><span>Nombre</span><span>Descripcion</span><span>$/kg</span><span></span></div>
-      <div id="matRows"></div>
-      <button class="btn-add-mat" onclick="addMaterial()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Agregar material</button>
     </div>
     <div class="modal-footer">
       <button class="btn-cancel-modal" onclick="closeSettings()">Cancelar</button>
@@ -1050,7 +1052,8 @@ function closePwdModal() {
 function checkPassword() {
   const crypto=require('crypto'), h=s=>crypto.createHash('sha256').update(s).digest('hex')
   const input=document.getElementById('pwdInput').value
-  if (h(input)===h('1001042945')) { closePwdModal(); openSettingsModal() }
+  if (h(input)===h('1001042945')) { closePwdModal(); openSettingsModal('full') }
+  else if (h(input)===h('360Publicidad')) { closePwdModal(); openSettingsModal('marca') }
   else {
     document.getElementById('pwdError').style.display='block'
     document.getElementById('pwdInput').value=''; document.getElementById('pwdInput').focus()
@@ -1058,7 +1061,9 @@ function checkPassword() {
 }
 
 // ── Settings modal ─────────────────────────────────────────────────────────
-function openSettingsModal() {
+let settingsMode = 'full'
+function openSettingsModal(mode) {
+  settingsMode = mode || 'full'
   document.getElementById('cfg-energiaW').value=cfg.energiaW
   document.getElementById('cfg-tarifaEnergia').value=cfg.tarifaEnergia
   document.getElementById('cfg-desgasteTotal').value=cfg.desgasteTotal
@@ -1073,6 +1078,7 @@ function openSettingsModal() {
   document.getElementById('cfg-marcaSubtitulo').value=cfg.marca.subtitulo
   document.getElementById('cfg-marcaContacto').value=cfg.marca.contacto
   document.getElementById('cfg-marcaColor').value=cfg.marca.color||'#E0313A'
+  document.getElementById('cfg-advancedSections').style.display = settingsMode==='full' ? '' : 'none'
   renderLogoPreview()
   renderMaterialRows()
   document.getElementById('settingsModal').classList.add('open')
