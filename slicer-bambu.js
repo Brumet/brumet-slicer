@@ -468,7 +468,16 @@ function laminarConBambu(filePath, scalePct, callback, printer) {
       if (!fs.existsSync(resultPath)) return callback('BambuStudio no generó result.json. ' + stderr)
       try {
         const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'))
-        if (result.return_code !== 0) return callback('BambuStudio error: ' + result.error_string)
+        if (result.return_code !== 0) {
+          // El motor BambuStudio embebido (version fija) a veces no puede leer 3MF
+          // exportados con una version mas nueva de Bambu Studio / MakerWorld.
+          const esVersion3MFIncompatible = path.extname(filePath).toLowerCase() === '.3mf' &&
+            /unsupported 3mf version/i.test(result.error_string || '')
+          if (esVersion3MFIncompatible) {
+            return callback('Este archivo 3MF se creo con una version de Bambu Studio mas nueva que la que usa esta app y no se puede leer. Abrelo en Bambu Studio (el programa oficial), expórtalo como STL, y vuelve a cotizar con ese STL.')
+          }
+          return callback('BambuStudio error: ' + result.error_string)
+        }
 
         const plates = result.sliced_plates || []
         if (plates.length === 0) return callback('No se encontraron camas en el resultado')
