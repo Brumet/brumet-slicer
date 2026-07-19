@@ -1,148 +1,163 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Este archivo guía a Claude Code (claude.ai/code) al trabajar con el código de este repositorio.
 
-## What this is
+## Qué es esto
 
-Brumet Slicer is a Windows Electron desktop app (in Spanish) that lets a 3D-printing
-business quote print jobs: the user drags in an STL/OBJ/3MF, the app slices it silently
-with a bundled BambuStudio CLI, and computes a price from filament + energy + machine
-wear + labor costs, then exports a branded PDF/CSV quote. It's a commercial product for
-a single client (Brumet, Bogotá) — not an open-source library — so changes should
-preserve exact pricing/business logic unless asked to change it.
+Brumet Slicer es una app de escritorio Windows (Electron) que permite a un negocio de
+impresión 3D cotizar trabajos: el usuario arrastra un STL/OBJ/3MF, la app lo lamina
+silenciosamente con un BambuStudio CLI incluido, y calcula un precio a partir de
+filamento + energía + desgaste de máquina + operario, para luego exportar una
+cotización en PDF/CSV con marca propia. Es un producto comercial para un solo cliente
+(Brumet, Bogotá) — no una librería open-source — así que los cambios deben preservar
+la lógica exacta de precios/negocio salvo que se pida modificarla explícitamente.
 
-## Commands
+## Comandos
 
 ```bash
-npm install         # install deps
-npm start            # run the app in dev (electron .)
-npm run build         # electron-builder --win (unsigned local build)
-npm run publish       # electron-builder --win --publish always (builds + uploads to GitHub Releases)
-npm run codigos       # node generar-codigos.js (license code generator — NOT in this repo, see below)
+npm install         # instalar dependencias
+npm start            # correr la app en dev (electron .)
+npm run build         # electron-builder --win (build local sin firmar)
+npm run publish       # electron-builder --win --publish always (build + sube a GitHub Releases)
+npm run codigos       # node generar-codigos.js (generador de códigos de licencia — no está en este repo, ver abajo)
 ```
 
-There is no test suite, linter, or CI configured in this repo — verify changes by running
-`npm start` and exercising the flow manually (see Architecture below for what to click).
+No hay suite de tests, linter ni CI configurados en este repo — verifica los cambios
+corriendo `npm start` y probando el flujo manualmente (ver Arquitectura abajo para
+saber qué probar).
 
-**Dev-only requirement:** a `BambuStudio/` folder containing `bambu-studio.exe` must sit at
-the project root (see `slicer-bambu.js` `BAMBU_EXE` resolution). It's gitignored for size —
-without it, slicing will fail but the UI still loads.
+**Requisito solo en dev:** debe existir una carpeta `BambuStudio/` con `bambu-studio.exe`
+en la raíz del proyecto (ver la resolución de `BAMBU_EXE` en `slicer-bambu.js`). Está en
+`.gitignore` por tamaño — sin ella, el laminado falla pero la UI carga igual.
 
-## Architecture
+## Arquitectura
 
-This is a plain Electron app with **no bundler/build step for source** — `main.js`,
-`index.html`, `viewer.html`, and `slicer-bambu.js` are loaded as-is (`nodeIntegration: true`,
-`contextIsolation: false` for the main/viewer windows), and business logic lives directly
-inline in `<script>` tags in the HTML files rather than in separate modules. When editing UI
-logic, go straight to the relevant `<script>` block in `index.html` or `viewer.html`.
+Es una app Electron plana, **sin bundler ni build step para el código fuente** —
+`main.js`, `index.html`, `viewer.html` y `slicer-bambu.js` se cargan tal cual
+(`nodeIntegration: true`, `contextIsolation: false` en las ventanas principal y del
+visor), y la lógica de negocio vive directamente en bloques `<script>` dentro de los
+HTML en vez de en módulos separados. Para tocar lógica de UI, ve directo al bloque
+`<script>` correspondiente en `index.html` o `viewer.html`.
 
-### Process split
+### División de procesos
 
-- **`main.js`** — Electron main process. Owns all IPC handlers, the BrowserWindows
-  (`mainWin` + a separate `viewerWin`), error logging to disk + Discord webhook reporting,
-  the auto-updater (`electron-updater`, checks GitHub Releases), settings/history
-  persistence (JSON files under `app.getPath('userData')`), and PDF/CSV export (PDF is
-  built as an HTML string in `buildPDFHTML()` and rendered off-screen via
-  `printToPDF`).
-- **`index.html`** — the main window: file drop zone, filament/printer selection, price
-  calculation and results UI, settings modal (password-gated), license/trial screen,
-  quote history, PDF/CSV/WhatsApp export.
-- **`viewer.html`** — a *second* BrowserWindow with a Three.js 3D viewer for
-  previewing/transforming a model (move/rotate/scale) before quoting. Talks back to
-  `main.js`/`index.html` purely through IPC (`slice-from-viewer`, `sync-file`, `load-stl`,
-  `open-stl-dialog`) — there's no direct reference between the two renderer contexts.
-- **`slicer-bambu.js`** — the slicing engine. Wraps the bundled BambuStudio CLI
-  (`bambu-studio.exe --slice 1 --outputdir ...`) as a child process and parses its
-  `result.json` output for time/filament-weight per plate.
+- **`main.js`** — proceso principal de Electron. Contiene todos los handlers IPC, las
+  BrowserWindows (`mainWin` + una `viewerWin` separada), el logging de errores a disco +
+  reporte por webhook de Discord, el auto-updater (`electron-updater`, revisa GitHub
+  Releases), la persistencia de settings/historial (archivos JSON bajo
+  `app.getPath('userData')`), y la exportación de PDF/CSV (el PDF se arma como un
+  string HTML en `buildPDFHTML()` y se renderiza fuera de pantalla vía `printToPDF`).
+- **`index.html`** — la ventana principal: zona de arrastre de archivos, selección de
+  filamento/impresora, cálculo de precio y UI de resultados, modal de configuración
+  (protegido por contraseña), pantalla de licencia/prueba, historial de cotizaciones,
+  exportación a PDF/CSV/WhatsApp.
+- **`viewer.html`** — una *segunda* BrowserWindow con un visor 3D en Three.js para
+  previsualizar/transformar un modelo (mover/rotar/escalar) antes de cotizar. Se
+  comunica con `main.js`/`index.html` únicamente por IPC (`slice-from-viewer`,
+  `sync-file`, `load-stl`, `open-stl-dialog`) — no hay referencia directa entre los dos
+  contextos de renderer.
+- **`slicer-bambu.js`** — el motor de laminado. Envuelve el BambuStudio CLI incluido
+  (`bambu-studio.exe --slice 1 --outputdir ...`) como proceso hijo y parsea su salida
+  `result.json` para obtener tiempo/gramos de filamento por cama.
 
-### Slicing pipeline (the core, non-obvious flow)
+### Pipeline de laminado (el flujo central, no obvio)
 
-STL/OBJ files are **not** sliced directly — BambuStudio needs a `.3mf` project. So
-`slicer-bambu.js` takes a printer-specific `.3mf` template from `perfiles/` (e.g.
-`elevador_config.3mf` for the Bambu A1, referenced via `PLANTILLAS_IMPRESORA`), unzips it
-with `adm-zip`, swaps in a freshly generated `3D/Objects/object_1.model` XML built from the
-parsed STL/OBJ geometry, patches the item transform and `Metadata/plate_1.json` bbox for
-positioning, and re-zips it as a temp `.3mf` before invoking the CLI. If the input is
-already `.3mf`, it's passed straight through untouched (it already has its own config).
+Los archivos STL/OBJ **no** se laminan directamente — BambuStudio necesita un proyecto
+`.3mf`. Por eso `slicer-bambu.js` toma una plantilla `.3mf` específica de la impresora
+desde `perfiles/` (ej. `elevador_config.3mf` para la Bambu A1, referenciada vía
+`PLANTILLAS_IMPRESORA`), la descomprime con `adm-zip`, reemplaza el XML de
+`3D/Objects/object_1.model` por uno generado a partir de la geometría STL/OBJ parseada,
+ajusta el transform del item y el bbox en `Metadata/plate_1.json` para posicionar el
+modelo, y vuelve a comprimirlo como un `.3mf` temporal antes de invocar el CLI. Si el
+archivo de entrada ya es `.3mf`, se pasa directo sin tocarlo (ya trae su propia
+configuración).
 
-Key details to preserve if touching this path:
-- **Unit auto-detection** (`calcularEscala`): bbox max < 1 → assume meters (×1000);
-  < 10 → assume centimeters (×10); otherwise millimeters. This exact rule is duplicated
-  in the 3D viewer's own scale logic — if the two diverge, the app quotes a different size
-  than what the user sees on screen (there's a comment in the code referencing a real past
-  bug from this).
-- **Mesh repair** (`repararMalla`): welds duplicate vertices and fills small open-edge
-  holes before handing geometry to BambuStudio, mimicking BambuStudio's own "repair"
-  button — needed because many client STLs are non-manifold "triangle soup".
-- **Bed-size guard**: rejects (with a user-facing message) any model whose transformed
-  bbox exceeds 256mm on any axis, instead of letting BambuStudio silently mis-slice it.
-- **Multi-plate 3MF**: a `.3mf` can contain multiple plates; results are aggregated per
-  plate (`camasData`) and also summed into top-level `tiempo`/`gramos`/`horas` fields for
-  backward compatibility with single-plate UI code.
-- When the viewer has applied a transform, the transformed STL (baked via `exportSTLBinary`
-  in `viewer.html` and written to a temp file) is what gets sliced — passing the original
-  file path instead would quote the wrong (untransformed) size.
+Detalles clave a preservar si se toca este flujo:
+- **Auto-detección de unidades** (`calcularEscala`): bbox máximo < 1 → asume metros
+  (×1000); < 10 → asume centímetros (×10); si no, milímetros. Esta misma regla está
+  duplicada en la lógica de escala del visor 3D — si las dos divergen, la app cotiza un
+  tamaño distinto al que el usuario ve en pantalla (hay un comentario en el código que
+  referencia un bug real ocurrido por esto).
+- **Reparación de malla** (`repararMalla`): suelda vértices duplicados y rellena
+  agujeros pequeños de bordes abiertos antes de pasarle la geometría a BambuStudio,
+  imitando el botón "Reparación" del propio BambuStudio — necesario porque muchos STL
+  de clientes son "triangle soup" no-manifold.
+- **Protección de tamaño de cama**: rechaza (con un mensaje para el usuario) cualquier
+  modelo cuyo bbox transformado exceda 256mm en algún eje, en vez de dejar que
+  BambuStudio lo lamine mal silenciosamente.
+- **3MF multi-cama**: un `.3mf` puede contener varias camas; los resultados se agregan
+  por cama (`camasData`) y también se suman en los campos de nivel superior
+  `tiempo`/`gramos`/`horas` por compatibilidad con código de UI de una sola cama.
+- Cuando el visor aplicó una transformación, lo que se lamina es el STL transformado
+  (generado con `exportSTLBinary` en `viewer.html` y escrito a un archivo temporal) —
+  pasar el path del archivo original en su lugar cotizaría el tamaño incorrecto (sin
+  transformar).
 
-### Pricing formula
+### Fórmula de precio
 
 ```
 costo = filamento + energía + desgaste_máquina + operario + espacio + fijos
-precio = costo × markup   (markup defaults to 2.0×, i.e. 100% margin)
+precio = costo × markup   (markup por defecto 2.0×, es decir 100% de margen)
 ```
 
-Implemented in `calcularPrecio()` in `index.html`. All the cost inputs (energy rate,
-machine wear/lifetime, labor/hour, workspace/hour, fixed costs, filament tiers, markup)
-live in a settings object persisted via `main.js`'s `load-settings`/`save-settings` IPC
-handlers, with `DEFAULT_CFG` in `main.js` as the schema/fallback. A separate bulk-quantity
-discount (`descuentoPorCantidad`) is applied on top, per line, and is intentionally kept
-outside the per-unit formula.
+Implementada en `calcularPrecio()` en `index.html`. Todos los parámetros de costo
+(tarifa de energía, desgaste/vida útil de máquina, operario/hora, espacio/hora, costos
+fijos, niveles de filamento, markup) viven en un objeto de settings persistido vía los
+handlers IPC `load-settings`/`save-settings` de `main.js`, con `DEFAULT_CFG` en
+`main.js` como schema/fallback. Existe un descuento por cantidad separado
+(`descuentoPorCantidad`) que se aplica por encima, por línea, y deliberadamente se
+mantiene fuera de la fórmula por unidad.
 
-### Settings access control
+### Control de acceso a configuración
 
-The settings modal is gated by a password check done client-side in `index.html`
-(`checkPassword()`, comparing SHA-256 hashes) with two tiers: a full-access password
-(all cost parameters) and a lower-privilege one (branding-only: logo, name, contact,
-color). Don't lower this bar or expose the plaintext comparisons — this protects the
-business owner's cost data from being edited by whoever is at the machine.
+El modal de configuración está protegido por una verificación de contraseña hecha en el
+cliente en `index.html` (`checkPassword()`, comparando hashes SHA-256) con dos niveles:
+una contraseña de acceso completo (todos los parámetros de costo) y otra de privilegio
+menor (solo marca: logo, nombre, contacto, color). No bajes esta barrera ni expongas
+las comparaciones en texto plano — esto protege los datos de costos del dueño del
+negocio de ser editados por quien esté frente a la máquina.
 
-### Licensing
+### Licencias
 
-Trial/license state lives in `index.html`, not `main.js`: a local JSON file under
-`AppData/Roaming/Brumet Slicer/license.json` tracks a 30-day trial or a 183-day licensed
-period. Activation codes are validated against SHA-256 hashes in `licenses.json` (loaded
-via the `load-license-hashes` IPC handler) — the code generator that produces those hashes
-(`generar-codigos.js`) is deliberately excluded from git (see `.gitignore`) and requires a
-master key that isn't in this repo.
+El estado de prueba/licencia vive en `index.html`, no en `main.js`: un archivo JSON
+local bajo `AppData/Roaming/Brumet Slicer/license.json` registra un período de prueba
+de 30 días o uno licenciado de 183 días. Los códigos de activación se validan contra
+hashes SHA-256 en `licenses.json` (cargado vía el handler IPC `load-license-hashes`) —
+el generador de esos hashes (`generar-codigos.js`) está deliberadamente excluido de git
+(ver `.gitignore`) y requiere una clave maestra que no está en este repo.
 
-### Error reporting
+### Reporte de errores
 
-`main.js` logs errors to a rotating local file (`logs/brumet.log` under userData, capped
-at 512KB with one backup) and also POSTs them to a Discord webhook for real-time
-monitoring, rate-limited to 1 message/minute. The webhook URL lives in `webhook.json`,
-which is gitignored (repo is public; a leaked webhook URL would need to be invalidated)
-but *is* packaged into the built app via electron-builder's `files` list. Every successful
-quote is also reported to the same webhook (`log-cotizacion`) to help catch suspicious
-quotes, and approved orders (`aprobar-cotizacion`) are sent with the model file zipped as
-an attachment (capped at Discord's 10MB limit).
+`main.js` registra errores en un archivo local rotativo (`logs/brumet.log` bajo
+userData, con tope de 512KB y una copia de respaldo) y también los envía por POST a un
+webhook de Discord para monitoreo en tiempo real, limitado a 1 mensaje por minuto. La
+URL del webhook vive en `webhook.json`, que está en `.gitignore` (el repo es público; una
+URL de webhook filtrada habría que invalidarla) pero *sí* se empaqueta en la app
+construida vía la lista `files` de electron-builder. Cada cotización exitosa también se
+reporta al mismo webhook (`log-cotizacion`) para detectar cotizaciones sospechosas, y
+los pedidos aprobados (`aprobar-cotizacion`) se envían con el archivo del modelo
+comprimido como adjunto (limitado a los 10MB de Discord).
 
-### Packaging
+### Empaquetado
 
-`package.json`'s `build` config (electron-builder) packages `perfiles/` and
-`BambuStudio/` as `extraResources` (outside the ASAR), with the BambuStudio bundle
-filtered down to just what's needed at runtime (drops plugins, resource i18n/fonts/models/
-etc. to shrink the installer). `slicer-bambu.js` and `main.js` resolve paths differently
-for dev (`__dirname/...`) vs. packaged (`process.resourcesPath/...`) — keep both branches
-in sync when adding new bundled resources.
+La configuración `build` de `package.json` (electron-builder) empaqueta `perfiles/` y
+`BambuStudio/` como `extraResources` (fuera del ASAR), con el paquete de BambuStudio
+filtrado a solo lo necesario en tiempo de ejecución (descarta plugins, i18n de recursos,
+fuentes, modelos, etc. para reducir el instalador). `slicer-bambu.js` y `main.js`
+resuelven paths de forma distinta en dev (`__dirname/...`) vs. empaquetado
+(`process.resourcesPath/...`) — mantén ambas ramas sincronizadas al agregar nuevos
+recursos empaquetados.
 
-## Conventions
+## Convenciones
 
-- Code, comments, UI strings, and commit-worthy user-facing text are in **Spanish**
-  (the client and its customers are Colombian) — match this when editing existing files.
-  Currency formatting uses `es-CO` locale and Colombian pesos (COP).
-- No module bundler, no TypeScript, no framework — plain `<script>` tags and CommonJS
-  `require()` in the renderer (enabled by `nodeIntegration: true`). Don't introduce a
-  build step or import system without discussing it first.
-- Only `Bambu A1` currently has a real profile in `perfiles/`; `PLANTILLAS_IMPRESORA` in
-  `slicer-bambu.js` also lists P1S/X1C templates that don't exist yet and safely fall back
-  to the A1 default (`getPlantilla`) — adding real support for another printer means
-  dropping a new `..._config.3mf` template into `perfiles/`.
+- El código, comentarios, strings de UI y mensajes de commit orientados al usuario
+  están en **español** (el cliente y sus clientes son colombianos) — respeta esto al
+  editar archivos existentes. El formato de moneda usa locale `es-CO` y pesos
+  colombianos (COP).
+- Sin bundler, sin TypeScript, sin framework — `<script>` planos y `require()` de
+  CommonJS en el renderer (habilitado por `nodeIntegration: true`). No introduzcas un
+  build step ni un sistema de módulos sin discutirlo antes.
+- Solo `Bambu A1` tiene actualmente un perfil real en `perfiles/`; `PLANTILLAS_IMPRESORA`
+  en `slicer-bambu.js` también lista plantillas para P1S/X1C que aún no existen y caen de
+  forma segura al default de A1 (`getPlantilla`) — agregar soporte real para otra
+  impresora significa agregar una nueva plantilla `..._config.3mf` en `perfiles/`.
