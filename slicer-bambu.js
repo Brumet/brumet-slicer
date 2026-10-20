@@ -339,6 +339,18 @@ function objToModelXML(objPath, scalePct) {
   return xml
 }
 
+// Cama de las impresoras soportadas (A1, P1S y X1C miden 256×256×256mm)
+const CAMA_MM = 256
+
+function mensajeNoCabe(dimX, dimY, dimZ) {
+  const factor = CAMA_MM / Math.max(dimX, dimY, dimZ)
+  const alturaMax = Math.floor(dimZ * factor)
+  const pctMax = Math.floor(factor * 100)
+  return `El modelo mide ${Math.round(dimX)}×${Math.round(dimY)}×${Math.round(dimZ)}mm y no cabe en la cama de impresión (${CAMA_MM}×${CAMA_MM}mm). ` +
+    `Para que quepa, la altura máxima es ${alturaMax}mm (escala ${pctMax}% o menos). ` +
+    `Ajústalo con "Ver en 3D" → Escalar, o divídelo en partes, y vuelve a cotizar.`
+}
+
 // ── Preparar 3MF para laminar (STL, OBJ o 3MF directo) ───────────────────────
 function prepararArchivo(filePath, scalePct, callback, printer) {
   const ext = path.extname(filePath).toLowerCase()
@@ -387,12 +399,18 @@ function prepararArchivo(filePath, scalePct, callback, printer) {
       bbox = calcularBboxFinal(filePath, scalePct)
     }
 
+    // Medidas inválidas (STL dañado con vértices NaN/infinitos): la pieza
+    // terminaría fuera de la cama y BambuStudio diría "plate is empty".
+    if (![bbox.minX,bbox.maxX,bbox.minY,bbox.maxY,bbox.minZ,bbox.maxZ].every(Number.isFinite)) {
+      callback('No se pudieron leer las medidas del modelo (el archivo parece dañado). Ábrelo en Bambu Studio, repáralo, expórtalo de nuevo como STL y vuelve a cotizar.')
+      return
+    }
+
     // Protección: si el modelo excede la cama (256mm), avisar en vez de
     // laminar algo que BambuStudio va a rechazar o cotizar mal.
-    const CAMA_MM = 256
     const dimX = bbox.maxX-bbox.minX, dimY = bbox.maxY-bbox.minY, dimZ = bbox.maxZ-bbox.minZ
     if (dimX > CAMA_MM || dimY > CAMA_MM || dimZ > CAMA_MM) {
-      callback(`El modelo mide ${Math.round(dimX)}×${Math.round(dimY)}×${Math.round(dimZ)}mm y excede la cama de impresión (${CAMA_MM}mm). Ábrelo con "Ver en 3D", ajústalo con la herramienta Escalar y vuelve a cotizar.`)
+      callback(mensajeNoCabe(dimX, dimY, dimZ))
       return
     }
 
@@ -475,6 +493,14 @@ function laminarConBambu(filePath, scalePct, callback, printer) {
             /unsupported 3mf version/i.test(result.error_string || '')
           if (esVersion3MFIncompatible) {
             return callback('Este archivo 3MF se creo con una version de Bambu Studio mas nueva que la que usa esta app y no se puede leer. Abrelo en Bambu Studio (el programa oficial), expórtalo como STL, y vuelve a cotizar con ese STL.')
+          }
+          // "One of the plate is empty or has no object fully inside it":
+          // la pieza quedó fuera de la cama (no cabe) o el archivo no trae
+          // ninguna pieza en la cama 1.
+          if (/plate is empty|no object fully inside/i.test(result.error_string || '')) {
+            return callback(path.extname(filePath).toLowerCase() === '.3mf'
+              ? 'La cama 1 de este 3MF está vacía o la pieza se sale de la cama. Ábrelo en Bambu Studio, deja la pieza completa dentro de la cama 1 (o expórtalo como STL) y vuelve a cotizar.'
+              : `La pieza no cabe completa en la cama de impresión (${CAMA_MM}×${CAMA_MM}mm). Reduce la altura o la escala del modelo, o divídelo en partes, y vuelve a cotizar.`)
           }
           return callback('BambuStudio error: ' + result.error_string)
         }
