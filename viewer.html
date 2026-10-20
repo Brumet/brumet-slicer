@@ -52,6 +52,17 @@ html,body{width:100%;height:100vh;background:#f0f1f5;font-family:-apple-system,B
 .sbtn{display:flex;align-items:center;gap:5px;width:100%;padding:6px 8px;border-radius:7px;border:1px solid #eaeaef;background:#f7f7fa;font-size:11px;font-weight:500;color:#1d1d1f;cursor:pointer;font-family:inherit;transition:all .15s;margin-bottom:4px}
 .sbtn:hover{background:#ebebf0}
 .sbtn.hi{background:#1d1d1f;border-color:#1d1d1f;color:#fff}
+.tbtn.cut-on{background:#fff;color:#E0313A;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+#cutPan{display:none;background:#fffaf9}
+.seg{display:flex;background:#f2f2f7;border-radius:7px;padding:2px;gap:2px;margin-bottom:7px}
+.seg button{flex:1;padding:4px 0;border:none;border-radius:5px;background:transparent;font-size:11px;font-weight:600;color:#6e6e73;cursor:pointer;font-family:inherit}
+.seg button.on{background:#fff;color:#1d1d1f;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.cutlbl{font-size:10px;color:#888;margin:4px 0 3px}
+.cutsel{width:100%;padding:4px 6px;border:1px solid rgba(0,0,0,.1);border-radius:6px;font-size:11px;font-family:inherit;background:#f5f5f8;margin-bottom:6px}
+.cutchk{display:flex;align-items:center;gap:5px;font-size:11px;color:#1d1d1f;margin-bottom:8px;cursor:pointer}
+.cutnote{font-size:10px;color:#888;line-height:1.35;margin-top:4px}
+.sbtn.cut{background:#E0313A;border-color:#E0313A;color:#fff;justify-content:center}
+.sbtn.cut:hover{background:#c4262e}
 .slicewrap{padding:11px 13px;border-top:1px solid #f2f2f7;margin-top:auto;flex-shrink:0}
 .slicebtn{width:100%;padding:8px;border-radius:8px;border:none;background:#0071e3;color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
 .slicebtn:hover{background:#005ec2}
@@ -93,6 +104,13 @@ html,body{width:100%;height:100vh;background:#f0f1f5;font-family:-apple-system,B
       <button class="tbtn" onclick="resetAll()">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.02"/></svg>
         Reset
+      </button>
+    </div>
+    <div class="tsep"></div>
+    <div class="tbg">
+      <button class="tbtn" id="tb-cut" onclick="toggleCorte()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+        Cortar
       </button>
     </div>
     <div class="tsp"></div>
@@ -168,6 +186,34 @@ html,body{width:100%;height:100vh;background:#f0f1f5;font-family:-apple-system,B
           <span class="slval" id="scpct">100%</span>
         </div>
       </div>
+      <!-- Cortar -->
+      <div class="pan" id="cutPan">
+        <div class="ptitle">Cortar modelo</div>
+        <div class="cutlbl">Eje del corte</div>
+        <div class="seg" id="cutEjes">
+          <button data-eje="z" class="on" onclick="setEjeCorte('z')">Alto (Z)</button>
+          <button data-eje="x" onclick="setEjeCorte('x')">Ancho (X)</button>
+          <button data-eje="y" onclick="setEjeCorte('y')">Prof. (Y)</button>
+        </div>
+        <div class="cutlbl">Posición del corte</div>
+        <div class="frow">
+          <div class="fw"><input class="fi" id="cutmm" type="number" step="0.5" min="0"><span class="fu">mm</span></div>
+          <button class="lbtn" onclick="cortarALaMitad()">Mitad</button>
+        </div>
+        <div class="slrow" style="margin-bottom:8px">
+          <input type="range" min="0" max="100" value="50" step="0.1" id="cutsl">
+        </div>
+        <div class="cutlbl">Conservar</div>
+        <select class="cutsel" id="cutKeep">
+          <option value="ambas">Ambas partes</option>
+          <option value="pos" id="cutKeepPos">Parte superior</option>
+          <option value="neg" id="cutKeepNeg">Parte inferior</option>
+        </select>
+        <label class="cutchk"><input type="checkbox" id="cutAcostar"> Cara cortada sobre la cama</label>
+        <button class="sbtn cut" onclick="aplicarCorte()">Cortar</button>
+        <button class="sbtn" id="btnDeshacerCorte" onclick="deshacerCorte()" disabled style="justify-content:center">Deshacer corte</button>
+        <div class="cutnote" id="cutNote">Las piezas que no quepan juntas se laminan en camas separadas y se suman a la cotización.</div>
+      </div>
       <!-- Dimensiones -->
       <div class="pan">
         <div class="ptitle">Dimensiones reales</div>
@@ -201,6 +247,7 @@ const path = require('path')
 const THREE = require(path.join(__dirname, 'node_modules', 'three', 'build', 'three.cjs'))
 
 const BED = 256
+const { cortarMalla } = require(path.join(__dirname, 'cortar.js'))
 // Transform state
 const T = { px:0, py:0, pz:0, rx:0, ry:0, rz:0, sx:100, sy:100, sz:100 }
 let baseDims = { x:0, y:0, z:0 }
@@ -394,6 +441,9 @@ function loadSTL(filePath) {
 
       // Remove old model
       if (modelMesh) { scene.remove(modelMesh); scene.remove(outlineMesh) }
+      piezas = null
+      historialCortes = []
+      document.getElementById('btnDeshacerCorte').disabled = true
 
       const mat = new THREE.MeshStandardMaterial({ color: 0xc87533, roughness: 0.55, metalness: 0.05 })
       modelMesh = new THREE.Mesh(geo, mat)
@@ -419,6 +469,7 @@ function loadSTL(filePath) {
       camRadius = Math.max(scaledMax * 2.8, 280)
       camTarget.set(0, scaledMax * 0.4, 0)
       syncUI()
+      if (corteActivo) actualizarPlanoCorte(true)
     } catch(e) {
       alert('Error cargando STL: ' + e.message)
       console.error(e)
@@ -456,6 +507,7 @@ function applyTransform() {
   }
 
   updateDims()
+  if (corteActivo) actualizarPlanoCorte(false)
 }
 
 // ── Update dimensions display ──
@@ -468,11 +520,231 @@ function updateDims() {
   document.getElementById('dim-x').textContent = sx + ' mm'
   document.getElementById('dim-y').textContent = sz + ' mm'
   document.getElementById('dim-z').textContent = sy + ' mm'
-  const ov = size.x > BED || size.y > BED || size.z > BED
+  // Con varias piezas (tras un corte) cada una se reparte en las camas que
+  // haga falta, así que lo que importa es que cada pieza quepa sola.
+  const cajas = piezas ? cajasDePiezas() : [box]
+  const ov = cajas.some(b => { const s = new THREE.Vector3(); b.getSize(s); return s.x > BED || s.y > BED || s.z > BED })
   document.getElementById('alert').style.display = ov ? 'block' : 'none'
   const pill = document.getElementById('spill'), txt = document.getElementById('stxt')
-  if (ov) { pill.className = 'spill serr'; txt.textContent = 'Fuera del área ⚠'; modelMesh.material.color.set(0xff5520) }
-  else     { pill.className = 'spill sok'; txt.textContent = 'Dentro del área ✓'; modelMesh.material.color.set(0xc87533) }
+  const nCamas = piezas && !ov ? repartirEnCamas(cajas).length : 1
+  const extra = piezas ? `${piezas.length} piezas · ` : ''
+  if (ov) { pill.className = 'spill serr'; txt.textContent = extra + 'Fuera del área ⚠'; modelMesh.material.color.set(0xff5520) }
+  else     { pill.className = 'spill sok'; txt.textContent = extra + (nCamas > 1 ? `${nCamas} camas ✓` : 'Dentro del área ✓'); modelMesh.material.color.set(0xc87533) }
+}
+
+// ── Cortar (como la herramienta "Cortar" de Bambu Studio) ──
+// piezas: null = modelo original de una sola pieza. Tras un corte es una lista
+// con cuántos valores de posición ocupa cada pieza dentro de la geometría
+// (no indexada) del modelo, en orden.
+let piezas = null
+let historialCortes = []
+let corteActivo = false, ejeCorte = 'z'
+// Eje de la impresora → índice del eje en el visor (Y del visor es la altura)
+const EJE_VISOR = { x: 0, y: 2, z: 1 }
+const NOMBRES_PARTES = {
+  z: ['Parte superior', 'Parte inferior'],
+  x: ['Parte derecha', 'Parte izquierda'],
+  y: ['Parte trasera', 'Parte delantera']
+}
+const planoCorte = new THREE.Mesh(
+  new THREE.PlaneGeometry(1, 1),
+  new THREE.MeshBasicMaterial({ color: 0xE0313A, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false })
+)
+const bordePlano = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.PlaneGeometry(1, 1)),
+  new THREE.LineBasicMaterial({ color: 0xE0313A })
+)
+planoCorte.add(bordePlano)
+planoCorte.visible = false
+scene.add(planoCorte)
+
+function toggleCorte() {
+  corteActivo = !corteActivo
+  document.getElementById('tb-cut').classList.toggle('cut-on', corteActivo)
+  document.getElementById('cutPan').style.display = corteActivo ? 'block' : 'none'
+  planoCorte.visible = corteActivo && !!modelMesh
+  if (corteActivo) { if (!modelMesh) alert('Carga un modelo primero.'); else actualizarPlanoCorte(true) }
+}
+
+function setEjeCorte(eje) {
+  ejeCorte = eje
+  document.querySelectorAll('#cutEjes button').forEach(b => b.classList.toggle('on', b.dataset.eje === eje))
+  document.getElementById('cutKeepPos').textContent = NOMBRES_PARTES[eje][0]
+  document.getElementById('cutKeepNeg').textContent = NOMBRES_PARTES[eje][1]
+  actualizarPlanoCorte(true)
+}
+
+function cortarALaMitad() {
+  document.getElementById('cutsl').value = 50
+  actualizarPlanoCorte(true)
+}
+
+// Coloca el plano rojo. El slider guarda la posición en % del modelo para que
+// siga en el mismo sitio si el modelo se escala; el campo muestra los mm
+// medidos desde el borde inferior/izquierdo/delantero del modelo.
+function actualizarPlanoCorte(desdeSlider) {
+  if (!modelMesh) return
+  const box = new THREE.Box3().setFromObject(modelMesh)
+  const i = EJE_VISOR[ejeCorte]
+  const size = new THREE.Vector3(); box.getSize(size)
+  const largo = size.getComponent(i)
+  const sl = document.getElementById('cutsl'), mm = document.getElementById('cutmm')
+  let desdeMin = largo * parseFloat(sl.value) / 100
+  if (!desdeSlider) desdeMin = Math.max(0, Math.min(largo, parseFloat(mm.value) || 0))
+  // En profundidad el visor crece hacia adelante (Y de la impresora = -Z del
+  // visor), así que se mide desde el frente, igual que la cama de la impresora
+  const valor = i === 2 ? box.max.z - desdeMin : box.min.getComponent(i) + desdeMin
+  mm.value = desdeMin.toFixed(1)
+  sl.value = largo ? (desdeMin / largo * 100).toFixed(1) : 50
+  const c = new THREE.Vector3(); box.getCenter(c)
+  c.setComponent(i, valor)
+  planoCorte.position.copy(c)
+  planoCorte.rotation.set(0, 0, 0)
+  const m = 1.15
+  if (i === 0)      { planoCorte.rotation.y = Math.PI / 2; planoCorte.scale.set(size.z * m + 4, size.y * m + 4, 1) }
+  else if (i === 1) { planoCorte.rotation.x = -Math.PI / 2; planoCorte.scale.set(size.x * m + 4, size.z * m + 4, 1) }
+  else              { planoCorte.scale.set(size.x * m + 4, size.y * m + 4, 1) }
+  planoCorte.visible = corteActivo
+}
+document.getElementById('cutsl').addEventListener('input', () => actualizarPlanoCorte(true))
+bindField('cutmm', () => actualizarPlanoCorte(false))
+
+// Geometría del modelo tal como se ve (escala, rotación y posición aplicadas)
+function geometriaMundo() {
+  modelMesh.updateMatrixWorld(true)
+  let g = modelMesh.geometry.clone()
+  if (g.index) g = g.toNonIndexed()
+  g.applyMatrix4(modelMesh.matrixWorld)
+  return g
+}
+
+// Parte la geometría del modelo en sus piezas (Float32Array por pieza)
+function separarPiezas(pos) {
+  if (!piezas) return [pos]
+  const out = []
+  let ini = 0
+  for (const n of piezas) { out.push(pos.slice(ini, ini + n)); ini += n }
+  return out
+}
+
+// Caja de cada pieza en el mundo (aproximada con las esquinas de su caja local:
+// exacta con escala y giros de 90°, algo holgada con otros ángulos)
+function cajasDePiezas() {
+  modelMesh.updateMatrixWorld(true)
+  return separarPiezas(modelMesh.geometry.attributes.position.array).map(arr => {
+    const local = new THREE.Box3().setFromArray(arr)
+    return local.applyMatrix4(modelMesh.matrixWorld)
+  })
+}
+
+function aplicarCorte() {
+  if (!modelMesh) { alert('Carga un modelo primero.'); return }
+  const i = EJE_VISOR[ejeCorte]
+  const geo = geometriaMundo()
+  geo.computeBoundingBox()
+  const lo = geo.boundingBox.min.getComponent(i), hi = geo.boundingBox.max.getComponent(i)
+  const valor = planoCorte.position.getComponent(i)
+  if (valor <= lo + 0.2 || valor >= hi - 0.2) { alert('Mueve el plano de corte para que atraviese el modelo.'); return }
+
+  const conservar = document.getElementById('cutKeep').value
+  const acostar = document.getElementById('cutAcostar').checked
+  // "Positiva" = lado hacia donde crece el eje en la impresora (arriba,
+  // derecha, atrás). En profundidad el visor va al revés.
+  const ladoPos = i === 2 ? 'negativa' : 'positiva'
+  const ladoNeg = i === 2 ? 'positiva' : 'negativa'
+  const nuevas = []
+  let cortadas = 0
+  for (const arr of separarPiezas(geo.attributes.position.array)) {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(arr, 3))
+    const r = cortarMalla(THREE, g, i, valor)
+    if (r.positiva && r.negativa) cortadas++
+    // Normal de la tapa de cada lado (hacia afuera de la pieza)
+    const n = new THREE.Vector3(); n.setComponent(i, 1)
+    if (conservar !== 'neg' && r[ladoPos]) nuevas.push({ pos: r[ladoPos], tapa: ladoPos === 'positiva' ? n.clone().negate() : n.clone() })
+    if (conservar !== 'pos' && r[ladoNeg]) nuevas.push({ pos: r[ladoNeg], tapa: ladoNeg === 'positiva' ? n.clone().negate() : n.clone() })
+  }
+  if (!cortadas) { alert('El plano no atraviesa ninguna pieza del modelo.'); return }
+  if (!nuevas.length) { alert('No queda ninguna pieza con esa opción de "Conservar".'); return }
+
+  // Orientar cada pieza (cara cortada abajo) y apoyarla en la cama
+  const abajo = new THREE.Vector3(0, -1, 0)
+  const geos = nuevas.map(({ pos, tapa }) => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    // En un corte horizontal la parte de abajo ya está apoyada en su base
+    // original; solo se gira lo que quedó con la cara cortada de lado.
+    if (acostar && tapa.y <= 0.5) g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(tapa, abajo))
+    g.computeBoundingBox()
+    const b = g.boundingBox
+    g.translate(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2)
+    g.computeBoundingBox()
+    return g
+  })
+
+  // Mostrarlas en fila, separadas 10mm
+  const GAP = 10
+  const anchoTotal = geos.reduce((s, g) => s + g.boundingBox.max.x - g.boundingBox.min.x, 0) + GAP * (geos.length - 1)
+  let x = -anchoTotal / 2
+  const partes = geos.map(g => {
+    const w = g.boundingBox.max.x - g.boundingBox.min.x
+    g.translate(x + w / 2, 0, 0)
+    x += w + GAP
+    return g.attributes.position.array
+  })
+
+  historialCortes.push({ geo: modelMesh.geometry, piezas, T: { ...T }, baseDims: { ...baseDims } })
+  document.getElementById('btnDeshacerCorte').disabled = false
+  const total = new Float32Array(partes.reduce((s, a) => s + a.length, 0))
+  let off = 0
+  for (const a of partes) { total.set(a, off); off += a.length }
+  const nueva = new THREE.BufferGeometry()
+  nueva.setAttribute('position', new THREE.BufferAttribute(total, 3))
+  nueva.computeVertexNormals()
+  ponerGeometria(nueva, partes.length > 1 ? partes.map(a => a.length) : null, null)
+}
+
+function deshacerCorte() {
+  const prev = historialCortes.pop()
+  if (!prev) return
+  document.getElementById('btnDeshacerCorte').disabled = historialCortes.length === 0
+  baseDims = prev.baseDims
+  ponerGeometria(prev.geo, prev.piezas, prev.T)
+}
+
+// Reemplaza la geometría del modelo. Sin T, la geometría ya trae aplicadas la
+// escala y la rotación, así que se arranca de 100% y sin giros.
+function ponerGeometria(geo, nuevasPiezas, nuevoT) {
+  piezas = nuevasPiezas
+  modelMesh.geometry = geo
+  outlineMesh.geometry = geo.clone()
+  if (nuevoT) Object.assign(T, nuevoT)
+  else {
+    geo.computeBoundingBox()
+    const size = new THREE.Vector3(); geo.boundingBox.getSize(size)
+    baseDims = { x: size.x, y: size.y, z: size.z }
+    Object.assign(T, { px:0, py:0, pz:0, rx:0, ry:0, rz:0, sx:100, sy:100, sz:100 })
+  }
+  syncUI()
+  applyTransform()
+}
+
+// Reparte piezas (cajas) en camas de BED×BED por filas, como el "Organizar" de
+// Bambu. Devuelve por cama una lista de { idx, x, z } (posición de la esquina).
+function repartirEnCamas(cajas) {
+  const GAP = 6
+  const items = cajas.map((b, idx) => ({ idx, w: b.max.x - b.min.x, d: b.max.z - b.min.z }))
+    .sort((a, b) => b.d - a.d)
+  const camas = []
+  let cama = null, x = 0, z = 0, fondoFila = 0
+  for (const it of items) {
+    if (cama && x > 0 && x + it.w > BED) { x = 0; z += fondoFila + GAP; fondoFila = 0 }
+    if (!cama || (z > 0 && z + it.d > BED)) { cama = []; camas.push(cama); x = 0; z = 0; fondoFila = 0 }
+    cama.push({ idx: it.idx, x, z })
+    x += it.w + GAP
+    fondoFila = Math.max(fondoFila, it.d)
+  }
+  return camas
 }
 
 // ── Sync UI fields ──
@@ -723,8 +995,38 @@ function enviarALaminar() {
     fs.writeFileSync(tempSTL, stlBuffer)
     console.log('STL guardado:', tempSTL, stlBuffer.length, 'bytes')
 
+    // Modelo cortado en piezas que no caben juntas: un STL por cama. El STL
+    // completo de arriba queda como archivo del pedido.
+    let partesSTL
+    if (piezas) {
+      const zUp = new THREE.Matrix4().makeRotationX(Math.PI / 2)
+      const arrs = separarPiezas(geometriaMundo().attributes.position.array)
+      const cajas = arrs.map(a => new THREE.Box3().setFromArray(a))
+      const camas = repartirEnCamas(cajas)
+      if (camas.length > 1) {
+        partesSTL = camas.map((cama, k) => {
+          const total = new Float32Array(cama.reduce((s, c) => s + arrs[c.idx].length, 0))
+          let off = 0
+          for (const c of cama) {
+            const g = new THREE.BufferGeometry()
+            g.setAttribute('position', new THREE.BufferAttribute(arrs[c.idx].slice(), 3))
+            const b = cajas[c.idx]
+            g.translate(c.x - b.min.x, -b.min.y, c.z - b.min.z)
+            total.set(g.attributes.position.array, off); off += g.attributes.position.array.length
+          }
+          const g = new THREE.BufferGeometry()
+          g.setAttribute('position', new THREE.BufferAttribute(total, 3))
+          g.applyMatrix4(zUp)
+          const f = path.join(tempDir, `modelo_transformado_cama${k + 1}.stl`)
+          fs.writeFileSync(f, exportSTLBinary(g))
+          return f
+        })
+      }
+    }
+
     const dims = {
       tempSTLPath: tempSTL,
+      partesSTL,
       originalPath: currentFilePath,
       heightMM: Math.round(size.y),
       sx: parseFloat(size.x.toFixed(1)),

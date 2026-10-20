@@ -538,5 +538,30 @@ function laminarConBambu(filePath, scalePct, callback, printer) {
   }, printer)
 }
 
-module.exports = { laminarConBambu, cancelarLaminado }
+// Modelo cortado en el visor: una pieza (o grupo de piezas) por cama. Se
+// laminan una tras otra y se suman como un resultado de varias camas.
+function laminarPartes(archivos, callback, printer) {
+  const camas = []
+  const siguiente = (k) => {
+    if (k >= archivos.length) {
+      const totalGramos = camas.reduce((s, c) => s + parseFloat(c.gramos), 0)
+      const totalHoras  = camas.reduce((s, c) => s + parseFloat(c.horas), 0)
+      return callback(null, {
+        camas,
+        multiCama: camas.length > 1,
+        tiempo:    formatTiempo(totalHoras * 3600),
+        horas:     totalHoras.toFixed(2),
+        gramos:    totalGramos.toFixed(2)
+      })
+    }
+    laminarConBambu(archivos[k], 100, (err, r) => {
+      if (err) return callback(err === 'CANCELADO' ? err : `Cama ${k + 1} de ${archivos.length}: ${err}`)
+      for (const c of r.camas) camas.push({ ...c, cama: camas.length + 1 })
+      siguiente(k + 1)
+    }, printer)
+  }
+  siguiente(0)
+}
+
+module.exports = { laminarConBambu, laminarPartes, cancelarLaminado }
 

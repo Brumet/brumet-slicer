@@ -293,7 +293,7 @@ ipcMain.on('sync-file', (event, filePath) => {
 })
 
 // ── Motor de laminado ─────────────────────────────────────────────────────────
-const { laminarConBambu, cancelarLaminado } = require('./slicer-bambu.js')
+const { laminarConBambu, laminarPartes, cancelarLaminado } = require('./slicer-bambu.js')
 
 ipcMain.handle('cancel-slice', () => { cancelarLaminado(); return true })
 
@@ -303,13 +303,16 @@ ipcMain.handle('slice-model', async (event, filePath, extraData) => {
     const scalePct    = extraData && extraData.scalePct   ? parseFloat(extraData.scalePct) : null
     const originalPath= extraData && extraData.originalPath ? extraData.originalPath : filePath
     const printer     = extraData && extraData.impresora  ? extraData.impresora : 'Bambu A1'
-    laminarConBambu(originalPath, scalePct, (err, resultado) => {
+    const terminar = (err, resultado) => {
       if (err) {
         if (err !== 'CANCELADO') logError('slicer', `${path.basename(originalPath)} [${printer}]: ${err}`)
         reject(err); return
       }
       resolve(resultado)
-    }, printer)
+    }
+    const partes = extraData && extraData.partes
+    if (partes && partes.length > 1) laminarPartes(partes, terminar, printer)
+    else laminarConBambu(originalPath, scalePct, terminar, printer)
   })
 })
 
