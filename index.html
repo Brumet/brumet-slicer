@@ -1019,6 +1019,7 @@ async function procesar() {
     }
     const avisos = []
     if (resultado.excede) avisos.push(`⚠️ No cabe en la impresora: se imprime en unas ${resultado.excede.partes} partes (ya incluido en el precio). <a href="#" onclick="abrirAvisoCorte(lastResult.excede);return false">Ver cómo cortarlo</a>`)
+    if (resultado.desdeLaminado) avisos.push('ℹ️ Este archivo ya venía laminado en Bambu Studio: se cotizó con el tiempo y los gramos que trae (los de quien lo laminó, con su perfil).')
     if (resultado.desdeGeometria) avisos.push('ℹ️ Este 3MF se hizo con una versión más nueva de Bambu Studio: se cotizó con su forma y el perfil de la app (sus colores y ajustes propios no se tomaron en cuenta).')
     avisoEl.innerHTML = avisos.join('<br>')
     avisoEl.style.display = avisos.length ? 'block' : 'none'

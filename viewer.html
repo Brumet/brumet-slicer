@@ -395,6 +395,10 @@ function loadSTL(filePath) {
   currentFilePath = filePath
   const name = filePath.split(/[\\/]/).pop()
   const ext  = name.split('.').pop().toLowerCase()
+  if (/\.gcode\.3mf$/i.test(name)) {
+    alert('Este archivo ya viene laminado de Bambu Studio: no trae la forma del modelo para verla en 3D. Cotízalo directamente desde la ventana principal.')
+    return
+  }
   document.getElementById('chip').textContent = name
   document.getElementById('chip').style.display = 'flex'
   document.getElementById('loading').style.display = 'block'

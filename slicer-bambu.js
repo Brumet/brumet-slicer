@@ -481,9 +481,42 @@ function cancelarLaminado() {
 // de Bambu Studio vuelve a dejar a la app sin poder cotizar.
 const TIMEOUT_3MF_DIRECTO_MS = 3 * 60 * 1000
 
+// Un .gcode.3mf ya viene laminado (Bambu Studio → "Exportar archivo laminado"): no trae la forma del
+// modelo sino el G-code, y el tiempo y los gramos de cada placa en Metadata/slice_info.config. Se toman
+// de ahí: son exactamente los de quien lo laminó. Devuelve null si el archivo no es de ese tipo.
+function resultadoDeLaminado(filePath) {
+  let zip
+  try { zip = new AdmZip(filePath) } catch(e) { return null }
+  const nombres = zip.getEntries().map(e => e.entryName)
+  if (!nombres.some(n => /^Metadata\/plate_\d+\.gcode$/i.test(n))) return null
+  const info = zip.getEntry('Metadata/slice_info.config')
+  if (!info) return null
+  const xml = info.getData().toString('utf8')
+  const camas = []
+  const rePlaca = /<plate>([\s\S]*?)<\/plate>/g
+  let m
+  while ((m = rePlaca.exec(xml)) !== null) {
+    const placa = m[1]
+    const dato = k => { const r = placa.match(new RegExp('key="' + k + '"\\s+value="([^"]*)"')); return r ? parseFloat(r[1]) : NaN }
+    const segs = dato('prediction'), gramos = dato('weight')
+    if (!(segs > 0) || !(gramos >= 0)) continue
+    camas.push({ cama: camas.length + 1, tiempo: formatTiempo(segs), horas: (segs / 3600).toFixed(2), gramos: gramos.toFixed(2) })
+  }
+  if (!camas.length) return null
+  const totalGramos = camas.reduce((s, c) => s + parseFloat(c.gramos), 0)
+  const totalHoras  = camas.reduce((s, c) => s + parseFloat(c.horas), 0)
+  console.log(`[Brumet] Archivo ya laminado: ${camas.length} placa(s), ${totalGramos.toFixed(1)} g`)
+  return { camas, multiCama: camas.length > 1, tiempo: camas[0].tiempo, horas: totalHoras.toFixed(2),
+           gramos: totalGramos.toFixed(2), excede: null, desdeLaminado: true }
+}
+
 function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
   const es3MF = path.extname(filePath).toLowerCase() === '.3mf'
   const leerGeometria = !!(opciones && opciones.leerGeometria)
+  if (es3MF && !leerGeometria && !(scalePct && scalePct !== 100)) {
+    const yaLaminado = resultadoDeLaminado(filePath)
+    if (yaLaminado) return callback(null, yaLaminado)
+  }
   prepararArchivo(filePath, scalePct, (err, archivoFinal, excede) => {
     if (err) return callback(err)
 
