@@ -61,43 +61,6 @@ function calcularEscala(bboxMax) {
   return 1
 }
 
-function bboxDeSTLAscii(texto) {
-  let minX=Infinity,minY=Infinity,minZ=Infinity
-  let maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity
-  const re = /vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)/g
-  let m
-  while ((m = re.exec(texto)) !== null) {
-    const x=parseFloat(m[1]),y=parseFloat(m[2]),z=parseFloat(m[3])
-    if(x<minX)minX=x; if(x>maxX)maxX=x
-    if(y<minY)minY=y; if(y>maxY)maxY=y
-    if(z<minZ)minZ=z; if(z>maxZ)maxZ=z
-  }
-  return {minX,minY,minZ,maxX,maxY,maxZ}
-}
-
-function bboxDeSTLBinario(buf, escala) {
-  const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
-  const dv = new DataView(ab)
-  const faceCount = dv.getUint32(80, true)
-  let minX=Infinity,minY=Infinity,minZ=Infinity
-  let maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity
-  let off = 84
-  for (let i=0; i<faceCount; i++) {
-    off += 12
-    for (let j=0; j<3; j++) {
-      const x=dv.getFloat32(off,true)*escala
-      const y=dv.getFloat32(off+4,true)*escala
-      const z=dv.getFloat32(off+8,true)*escala
-      if(x<minX)minX=x; if(x>maxX)maxX=x
-      if(y<minY)minY=y; if(y>maxY)maxY=y
-      if(z<minZ)minZ=z; if(z>maxZ)maxZ=z
-      off += 12
-    }
-    off += 2
-  }
-  return {minX,minY,minZ,maxX,maxY,maxZ}
-}
-
 // ── Reparación de malla (soldar vértices duplicados + rellenar agujeros) ────
 // Imita lo que hace BambuStudio/Windows con el botón "Reparación":
 // 1) Suelda vértices que están en la misma posición (típico de mallas STL
@@ -193,17 +156,18 @@ function repararMalla(verts, tris) {
   return { verts: newVerts, tris: cleanTris }
 }
 
-function stlAMalla(stlPath, scalePct) {
-  const buf = fs.readFileSync(stlPath)
-  const escalaUsuario = (scalePct || 100) / 100
-  const verts = []
-  const tris = []
+// Error con mensaje ya pensado para el usuario (se muestra tal cual)
+function errorUsuario(msg) {
+  const e = new Error(msg)
+  e.usuario = true
+  return e
+}
 
+// ── Lectura de mallas (coordenadas tal cual vienen en el archivo) ────────────
+function leerSTL(buf) {
+  const verts = [], tris = []
   if (esSTLAscii(buf)) {
     const texto = buf.toString('utf8')
-    const bbox = bboxDeSTLAscii(texto)
-    const bboxMax = Math.max(bbox.maxX-bbox.minX, bbox.maxY-bbox.minY, bbox.maxZ-bbox.minZ)
-    const escala = calcularEscala(bboxMax)
     const re = /facet normal[\s\S]*?endloop/g
     let faceta
     while ((faceta = re.exec(texto)) !== null) {
@@ -211,65 +175,120 @@ function stlAMalla(stlPath, scalePct) {
       const base = verts.length
       let vm
       while ((vm = vre.exec(faceta[0])) !== null) {
-        verts.push([
-          parseFloat(vm[1])*escala*escalaUsuario,
-          parseFloat(vm[2])*escala*escalaUsuario,
-          parseFloat(vm[3])*escala*escalaUsuario
-        ])
+        verts.push([parseFloat(vm[1]), parseFloat(vm[2]), parseFloat(vm[3])])
       }
-      tris.push([base, base+1, base+2])
+      if (verts.length - base === 3) tris.push([base, base+1, base+2])
+      else verts.length = base  // faceta mal formada: se descarta
     }
-  } else {
-    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
-    const dv = new DataView(ab)
-    const faceCount = dv.getUint32(80, true)
-    const bboxRaw = bboxDeSTLBinario(buf, 1)
-    const bboxMax = Math.max(bboxRaw.maxX-bboxRaw.minX, bboxRaw.maxY-bboxRaw.minY, bboxRaw.maxZ-bboxRaw.minZ)
-    const escala = calcularEscala(bboxMax)
-    let off = 84
-    for (let i=0; i<faceCount; i++) {
-      off += 12
-      const base = verts.length
-      for (let j=0; j<3; j++) {
-        verts.push([
-          dv.getFloat32(off,true)*escala*escalaUsuario,
-          dv.getFloat32(off+4,true)*escala*escalaUsuario,
-          dv.getFloat32(off+8,true)*escala*escalaUsuario
-        ])
-        off += 12
-      }
-      tris.push([base, base+1, base+2])
-      off += 2
-    }
+    return { verts, tris }
   }
-  return repararMalla(verts, tris)
+  if (buf.length < 84) return { verts, tris }
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+  // Algunos exportadores escriben mal el número de caras: nunca leer más allá del archivo
+  const faceCount = Math.min(dv.getUint32(80, true), Math.floor((buf.length - 84) / 50))
+  let off = 84
+  for (let i=0; i<faceCount; i++) {
+    off += 12
+    const base = verts.length
+    for (let j=0; j<3; j++) {
+      verts.push([dv.getFloat32(off,true), dv.getFloat32(off+4,true), dv.getFloat32(off+8,true)])
+      off += 12
+    }
+    tris.push([base, base+1, base+2])
+    off += 2
+  }
+  return { verts, tris }
 }
 
-// ── OBJ parser ────────────────────────────────────────────────────────────────
-function objAMalla(objPath, scalePct) {
-  const texto = fs.readFileSync(objPath, 'utf8')
-  const escalaUsuario = (scalePct || 100) / 100
-  const rawVerts = []
-  const tris = []
-
+function leerOBJ(texto) {
+  const verts = [], tris = []
   texto.split('\n').forEach(line => {
     const t = line.trim()
     if (t.startsWith('v ')) {
       const p = t.split(/\s+/)
-      rawVerts.push([parseFloat(p[1]), parseFloat(p[2]), parseFloat(p[3])])
+      verts.push([parseFloat(p[1]), parseFloat(p[2]), parseFloat(p[3])])
     } else if (t.startsWith('f ')) {
-      const parts = t.split(/\s+/).slice(1).map(p => parseInt(p.split('/')[0]) - 1)
-      // triangulate fan
-      for (let i = 1; i < parts.length - 1; i++) {
-        tris.push([parts[0], parts[i], parts[i+1]])
-      }
+      // Índices 1-based; los negativos son relativos al último vértice leído
+      const parts = t.split(/\s+/).slice(1).map(p => {
+        const n = parseInt(p.split('/')[0])
+        return n < 0 ? verts.length + n : n - 1
+      })
+      for (let i = 1; i < parts.length - 1; i++) tris.push([parts[0], parts[i], parts[i+1]])
     }
   })
+  return { verts, tris }
+}
 
-  // Misma regla que el visor: por el tamaño del modelo, no por la coordenada más lejana
-  const b = bboxDe(rawVerts)
-  const escala = calcularEscala(Math.max(b.maxX-b.minX, b.maxY-b.minY, b.maxZ-b.minZ)) * escalaUsuario
-  return repararMalla(rawVerts.map(([x,y,z]) => [x*escala, y*escala, z*escala]), tris)
+// Bounding box solo de los vértices que forman triángulos
+function bboxMalla(verts, tris) {
+  let minX=Infinity,minY=Infinity,minZ=Infinity
+  let maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity
+  for (const t of tris) for (const i of t) {
+    const [x,y,z] = verts[i]
+    if(x<minX)minX=x; if(x>maxX)maxX=x
+    if(y<minY)minY=y; if(y>maxY)maxY=y
+    if(z<minZ)minZ=z; if(z>maxZ)maxZ=z
+  }
+  return {minX,minY,minZ,maxX,maxY,maxZ}
+}
+
+// Volumen con signo (teorema de la divergencia); el signo depende de la orientación de las caras
+function volumenMalla(verts, tris) {
+  let v = 0
+  for (const [a, b, c] of tris) {
+    const [ax,ay,az] = verts[a], [bx,by,bz] = verts[b], [cx,cy,cz] = verts[c]
+    v += ax*(by*cz - bz*cy) - ay*(bx*cz - bz*cx) + az*(bx*cy - by*cx)
+  }
+  return v / 6
+}
+
+// Deja solo los vértices usados por algún triángulo (BambuStudio calcula el
+// tamaño del objeto con TODOS los vértices, así que uno suelto o con NaN
+// puede sacar la pieza de la cama aunque no se vea).
+function compactarMalla(verts, tris) {
+  const nuevoIdx = new Map()
+  const out = []
+  const outTris = tris.map(t => t.map(i => {
+    let n = nuevoIdx.get(i)
+    if (n === undefined) { n = out.length; out.push(verts[i]); nuevoIdx.set(i, n) }
+    return n
+  }))
+  return { verts: out, tris: outTris }
+}
+
+// STL / OBJ: lee, sanea, escala y repara.
+// unidadesAuto = false cuando el archivo ya viene en mm (STL exportado por el
+// visor 3D): re-detectar unidades multiplicaría x10 una pieza de menos de 10 mm.
+function prepararMalla(filePath, ext, scalePct, unidadesAuto) {
+  const crudo = ext === '.obj'
+    ? leerOBJ(fs.readFileSync(filePath, 'utf8'))
+    : leerSTL(fs.readFileSync(filePath))
+
+  // Fuera triángulos con índices inválidos o coordenadas NaN/Infinito
+  const validos = crudo.tris.filter(t => t.every(i =>
+    i >= 0 && i < crudo.verts.length && crudo.verts[i].every(Number.isFinite)))
+  if (validos.length < crudo.tris.length)
+    console.log(`[Brumet] ${crudo.tris.length - validos.length} triangulo(s) invalido(s) descartado(s)`)
+  if (validos.length === 0)
+    throw errorUsuario('El archivo no contiene una malla 3D válida (no tiene triángulos legibles). Exporta el modelo de nuevo como STL desde el programa donde se diseñó.')
+
+  // Misma regla de unidades que el visor: por el tamaño del modelo
+  const b0 = bboxMalla(crudo.verts, validos)
+  const escala = (unidadesAuto
+    ? calcularEscala(Math.max(b0.maxX-b0.minX, b0.maxY-b0.minY, b0.maxZ-b0.minZ))
+    : 1) * ((scalePct || 100) / 100)
+
+  const escalados = crudo.verts.map(v => [v[0]*escala, v[1]*escala, v[2]*escala])
+  const reparado = repararMalla(escalados, validos)
+  const malla = compactarMalla(reparado.verts, reparado.tris)
+  if (malla.tris.length === 0)
+    throw errorUsuario('El modelo no tiene volumen imprimible (todas sus caras son planas o están repetidas). Revisa el archivo en el programa donde se diseñó.')
+
+  // Una superficie sin grosor (logo o texto exportado en 2D) no tiene nada que
+  // imprimir: BambuStudio la descarta y responde "plate is empty".
+  if (Math.abs(volumenMalla(malla.verts, malla.tris)) < 0.001)
+    throw errorUsuario('El modelo es una superficie sin grosor (0 mm³ de volumen), algo común en logos o textos exportados en 2D. Ábrelo en el programa de diseño, dale grosor (extruir / solidificar), expórtalo como STL y vuelve a cotizar.')
+  return malla
 }
 
 // 3MF que el motor no pudo leer (versión más nueva de Bambu Studio): se toma su geometría
@@ -344,8 +363,11 @@ function infoExcede(dimX, dimY, dimZ) {
 
 // ── Preparar 3MF para laminar (STL, OBJ o 3MF directo) ───────────────────────
 // callback(err, archivo, excede): excede = null si cabe, o {dimX, dimY, dimZ, cama, partes}
-function prepararArchivo(filePath, scalePct, callback, printer, leerGeometria) {
+// opciones.leerGeometria: 3MF que el motor no pudo leer → se arma con su geometría
+// opciones.unidadesAuto = false: el archivo ya viene en mm (STL exportado por el visor 3D)
+function prepararArchivo(filePath, scalePct, callback, printer, opciones) {
   const ext = path.extname(filePath).toLowerCase()
+  const { leerGeometria = false, unidadesAuto = true } = opciones || {}
 
   if (ext === '.3mf' && !leerGeometria) {
     // Primero tal cual: así se respetan sus colores, placas y ajustes
@@ -359,8 +381,7 @@ function prepararArchivo(filePath, scalePct, callback, printer, leerGeometria) {
   try {
     const zip = new AdmZip(getPlantilla(printer))
     const malla = ext === '.3mf' ? tresMFAMalla(filePath, scalePct)
-      : ext === '.obj' ? objAMalla(filePath, scalePct)
-      : stlAMalla(filePath, scalePct)
+      : prepararMalla(filePath, ext, scalePct, unidadesAuto)
     const bbox = bboxDe(malla.verts)
     const dimX = bbox.maxX-bbox.minX, dimY = bbox.maxY-bbox.minY, dimZ = bbox.maxZ-bbox.minZ
     // Un 3MF puede traer varias piezas repartidas en varias placas: lo que debe caber en
@@ -405,15 +426,38 @@ function prepararArchivo(filePath, scalePct, callback, printer, leerGeometria) {
       const bboxX1=parseFloat((minX+cx).toFixed(5)), bboxY1=parseFloat((minY+cy).toFixed(5))
       const bboxX2=parseFloat((maxX+cx).toFixed(5)), bboxY2=parseFloat((maxY+cy).toFixed(5))
       plate1.bbox_all=[bboxX1,bboxY1,bboxX2,bboxY2]
-      plate1.bbox_objects[0].bbox=[bboxX1,bboxY1,bboxX2,bboxY2]
-      plate1.bbox_objects[0].name=path.basename(filePath)
+      if (plate1.bbox_objects && plate1.bbox_objects[0]) {
+        plate1.bbox_objects[0].bbox=[bboxX1,bboxY1,bboxX2,bboxY2]
+        plate1.bbox_objects[0].name=path.basename(filePath)
+      }
       zip.updateFile('Metadata/plate_1.json', Buffer.from(JSON.stringify(plate1), 'utf8'))
     }
     zip.writeZip(temp3MF)
     callback(null, temp3MF, excede)
   } catch(e) {
-    callback('Error preparando archivo: ' + e.message)
+    callback(e.usuario ? e.message : 'Error preparando archivo: ' + e.message)
   }
+}
+
+// Traduce los errores del motor a mensajes claros. Se basa en el código
+// numérico y en palabras clave (no en la frase exacta), para que una versión
+// futura de BambuStudio que cambie la redacción no rompa la detección.
+function explicarErrorBambu(result, filePath) {
+  const msg  = String(result.error_string || '').trim()
+  const code = result.return_code
+  const es3MF = path.extname(filePath).toLowerCase() === '.3mf'
+  const detalle = ` (Detalle técnico: ${msg || 'sin mensaje'} · código ${code})`
+
+  if (code === -50 || /plate/i.test(msg) && /empty|inside|outside/i.test(msg)) {
+    return es3MF
+      ? 'Este proyecto 3MF tiene la cama vacía o una pieza que se sale de la cama. Ábrelo en Bambu Studio, deja la pieza completa dentro de la cama (o expórtala como STL) y vuelve a cotizar.' + detalle
+      : 'El motor de laminado no encontró nada imprimible en la pieza. Suele pasar cuando el archivo es una superficie sin grosor (logos o textos exportados en 2D) o está dañado: ábrelo en el programa de diseño, dale grosor, expórtalo de nuevo como STL y vuelve a cotizar.' + detalle
+  }
+
+  if (/layer|nothing to print|no extrusion|empty/i.test(msg))
+    return 'El motor no generó capas para imprimir: la pieza es demasiado pequeña o delgada. Agrándala con "Ver en 3D" → Escalar y vuelve a cotizar.' + detalle
+
+  return 'El motor de laminado no pudo procesar este modelo.' + detalle
 }
 
 function formatTiempo(segundosTotales) {
@@ -437,8 +481,9 @@ function cancelarLaminado() {
 // de Bambu Studio vuelve a dejar a la app sin poder cotizar.
 const TIMEOUT_3MF_DIRECTO_MS = 3 * 60 * 1000
 
-function laminarConBambu(filePath, scalePct, callback, printer, leerGeometria) {
+function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
   const es3MF = path.extname(filePath).toLowerCase() === '.3mf'
+  const leerGeometria = !!(opciones && opciones.leerGeometria)
   prepararArchivo(filePath, scalePct, (err, archivoFinal, excede) => {
     if (err) return callback(err)
 
@@ -452,7 +497,7 @@ function laminarConBambu(filePath, scalePct, callback, printer, leerGeometria) {
     const plan_b = (motivo) => {
       console.log(`[Brumet] El motor no pudo con el 3MF (${motivo}); se cotiza con su geometría`)
       terminado = true
-      laminarConBambu(filePath, scalePct, callback, printer, true)
+      laminarConBambu(filePath, scalePct, callback, printer, { ...opciones, leerGeometria: true })
     }
 
     cancelado = false
@@ -483,7 +528,7 @@ function laminarConBambu(filePath, scalePct, callback, printer, leerGeometria) {
         if (result.return_code !== 0) {
           // Pasa con los 3MF de versiones nuevas de Bambu Studio ("Unsupported 3MF version")
           if (directo3MF) return plan_b(result.error_string || `código ${result.return_code}`)
-          return terminar('BambuStudio error: ' + result.error_string)
+          return terminar(explicarErrorBambu(result, filePath))
         }
 
         const plates = result.sliced_plates || []
@@ -491,11 +536,14 @@ function laminarConBambu(filePath, scalePct, callback, printer, leerGeometria) {
 
         // Procesar todas las camas
         const camasData = plates.map((plate, idx) => {
-          const gramos = plate.filaments.reduce((s, f) => s + f.total_used_g, 0)
-          const horas  = plate.main_predication / 3600
+          // Campos opcionales con valor por defecto: si una versión futura del
+          // motor omite alguno, la cotización no revienta
+          const gramos = (plate.filaments || []).reduce((s, f) => s + (Number(f.total_used_g) || 0), 0)
+          const segs   = Number(plate.main_predication) || 0
+          const horas  = segs / 3600
           return {
             cama:   idx + 1,
-            tiempo: formatTiempo(plate.main_predication),
+            tiempo: formatTiempo(segs),
             horas:  horas.toFixed(2),
             gramos: gramos.toFixed(2)
           }
@@ -518,7 +566,34 @@ function laminarConBambu(filePath, scalePct, callback, printer, leerGeometria) {
         terminar('Error leyendo result.json: ' + e.message)
       }
     })
-  }, printer, leerGeometria)
+  }, printer, opciones)
 }
 
-module.exports = { laminarConBambu, cancelarLaminado }
+// Modelo cortado en el visor: una pieza (o grupo de piezas) por cama. Se
+// laminan una tras otra y se suman como un resultado de varias camas.
+// Las partes salen del visor ya en mm: no se re-detectan unidades.
+function laminarPartes(archivos, callback, printer) {
+  const camas = []
+  const siguiente = (k) => {
+    if (k >= archivos.length) {
+      const totalGramos = camas.reduce((s, c) => s + parseFloat(c.gramos), 0)
+      const totalHoras  = camas.reduce((s, c) => s + parseFloat(c.horas), 0)
+      return callback(null, {
+        camas,
+        multiCama: camas.length > 1,
+        tiempo:    formatTiempo(totalHoras * 3600),
+        horas:     totalHoras.toFixed(2),
+        gramos:    totalGramos.toFixed(2),
+        excede:    null
+      })
+    }
+    laminarConBambu(archivos[k], 100, (err, r) => {
+      if (err) return callback(err === 'CANCELADO' ? err : `Cama ${k + 1} de ${archivos.length}: ${err}`)
+      for (const c of r.camas) camas.push({ ...c, cama: camas.length + 1 })
+      siguiente(k + 1)
+    }, printer, { unidadesAuto: false })
+  }
+  siguiente(0)
+}
+
+module.exports = { laminarConBambu, laminarPartes, cancelarLaminado }
