@@ -475,6 +475,7 @@ function loadSTL(filePath) {
       if (corteActivo) actualizarPlanoCorte(true)
     } catch(e) {
       alert('Error cargando STL: ' + e.message)
+      ipcRenderer.send('log-error', 'visor', `Error cargando ${currentFilePath}: ${e.stack || e.message}`, currentFilePath)
       console.error(e)
     }
     document.getElementById('loading').style.display = 'none'
@@ -1042,11 +1043,20 @@ function enviarALaminar() {
     ipcRenderer.send('close-viewer')
   } catch(e) {
     alert('Error exportando STL: ' + e.message)
+    ipcRenderer.send('log-error', 'visor', 'Error exportando STL: ' + (e.stack || e.message))
     console.error(e)
   }
 }
 
 ipcRenderer.on('load-stl', (e, fp) => loadSTL(fp))
+
+// Cualquier error del visor llega al canal de Discord (con el archivo que se estaba viendo)
+window.addEventListener('error', e => {
+  try { ipcRenderer.send('log-error', 'visor', (e.message || '') + ' @ ' + (e.filename || '') + ':' + (e.lineno || '') + (currentFilePath ? ' · archivo ' + currentFilePath : '')) } catch(_) {}
+})
+window.addEventListener('unhandledrejection', e => {
+  try { ipcRenderer.send('log-error', 'visor', 'unhandledrejection: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)) } catch(_) {}
+})
 
 window.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return
