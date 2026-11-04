@@ -453,9 +453,7 @@ function prepararArchivo(filePath, scalePct, callback, printer, opciones) {
   if (ext === '.3mf' && !leerGeometria) {
     // El proyecto con sus piezas, placas, filamentos y colores, pero con el perfil de Brumet
     // (Gemelas, impresora de la plantilla): es con lo que se va a imprimir
-    let archivo = filePath
-    try { archivo = proyectoConGemelas(filePath, printer) } catch(e) { console.log('[Brumet] No pude poner Gemelas al 3MF: ' + e.message) }
-    callback(null, archivo, null)
+    callback(null, filePath, null)
     return
   }
 
@@ -639,7 +637,9 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
     cancelado = false
     // Un proyecto 3MF se lamina con TODAS sus placas (0); un modelo suelto va en la placa 1
     const placa = String((opciones && opciones.placa) || (directo3MF ? 0 : 1))
-    const proc = spawn(BAMBU_EXE, ['--slice', placa, '--outputdir', OUTPUT_DIR, archivoFinal])
+    const ajustes = directo3MF ? ajustesBrumet(filePath, printer) : []
+    try { fs.unlinkSync(path.join(OUTPUT_DIR, 'laminado_brumet.3mf')) } catch(e) {}
+    const proc = spawn(BAMBU_EXE, ['--slice', placa, ...ajustes, '--outputdir', OUTPUT_DIR, '--export-3mf', 'laminado_brumet.3mf', archivoFinal])
     procActual = proc
     let stderr = ''
     proc.stdout.on('data', () => {})           // drenar stdout para evitar bloqueo en Windows
@@ -680,14 +680,19 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
         }
 
         const plates = result.sliced_plates || []
+        const info = datosDelLaminado(path.join(OUTPUT_DIR, 'laminado_brumet.3mf'))
         if (plates.length === 0) return terminar('No se encontraron camas en el resultado')
 
         // Procesar todas las camas
         const camasData = plates.map((plate, idx) => {
           // Campos opcionales con valor por defecto: si una versión futura del
           // motor omite alguno, la cotización no revienta
-          const gramos = (plate.filaments || []).reduce((s, f) => s + (Number(f.total_used_g) || 0), 0)
-          const segs   = Number(plate.main_predication) || 0
+          // Siempre lo MAYOR de lo que reporta el motor (lo que muestra Bambu Studio): el tiempo
+          // "principal" no cuenta los cambios de color (multicolor: 7,7 h en vez de 12,4 h) y el peso
+          // del resumen incluye la purga
+          const extra  = info[plate.id] || info[idx + 1] || {}
+          const gramos = Math.max((plate.filaments || []).reduce((s, f) => s + (Number(f.total_used_g) || 0), 0), extra.gramos || 0)
+          const segs   = Math.max(Number(plate.main_predication) || 0, Number(plate.total_predication) || 0, extra.segs || 0)
           const horas  = segs / 3600
           return {
             cama:   idx + 1,
@@ -700,6 +705,25 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
         const totalGramos = camasData.reduce((s, c) => s + parseFloat(c.gramos), 0)
         const totalHoras  = camasData.reduce((s, c) => s + parseFloat(c.horas), 0)
 
+        // El motor a veces ignora la pintura de colores (mismo archivo: 136 g en un color o 201 g en
+        // dos). Si el proyecto está pintado y salió de un solo color, se repite (hasta 3) y vale lo mayor.
+        const coloresUsados = new Set()
+        for (const p of plates) for (const f of (p.filaments || [])) if ((Number(f.total_used_g) || 0) > 0.01) coloresUsados.add(f.id)
+        const intento = (opciones && opciones.intento) || 1
+        const pintadoUnColor = directo3MF && !(opciones && opciones.placa) && coloresUsados.size < 2 && esPintado(filePath)
+        if (pintadoUnColor && intento < 3) {
+          console.log(`[Brumet] Proyecto pintado a colores pero salió de un color: se repite (intento ${intento + 1})`)
+          terminado = true
+          const este = { camas: camasData, gramos: totalGramos, horas: totalHoras }
+          return laminarConBambu(filePath, scalePct, (e2, r2) => {
+            if (e2 || !r2 || parseFloat(r2.gramos) < este.gramos) {
+              return callback(null, { camas: camasData, multiCama: camasData.length > 1, tiempo: formatTiempo(totalHoras * 3600),
+                horas: totalHoras.toFixed(2), gramos: totalGramos.toFixed(2), excede, desdeGeometria: false, multicolorSinPurga: true })
+            }
+            callback(null, r2)
+          }, printer, { ...opciones, intento: intento + 1 })
+        }
+
         terminar(null, {
           camas:      camasData,
           multiCama:  camasData.length > 1,
@@ -710,7 +734,7 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
           excede,                                    // null o {dimX, dimY, dimZ, cama, partes}
           desdeGeometria: es3MF && !!leerGeometria,  // 3MF cotizado con su geometría (perfil y color de la app)
           // Multicolor por geometría: falta el purgado entre colores (puede ser mucho): hay que verificar
-          multicolorSinPurga: es3MF && !!leerGeometria && ultimoMulticolor
+          multicolorSinPurga: (es3MF && !!leerGeometria && ultimoMulticolor) || pintadoUnColor
         })
       } catch(e) {
         terminar('Error leyendo result.json: ' + e.message)
@@ -745,25 +769,55 @@ function cotizarNoCabe(filePath, scalePct, callback, printer, opciones, excede, 
 // impresora). Se le ponen los ajustes de proceso de la plantilla (Gemelas) y, si es de otra
 // impresora, también los de la máquina; filamentos y colores quedan los del proyecto (así cuenta
 // el purgado entre colores). Igual que el cotizador de Brumo.
-const CLAVES_GEMELAS = (() => {
-  try { return JSON.parse(fs.readFileSync(resolveProfile('claves_gemelas.json'), 'utf8')) } catch(e) { return null }
-})()
-function proyectoConGemelas(filePath, printer) {
-  if (!CLAVES_GEMELAS) return filePath
-  const zip = new AdmZip(filePath)
-  const entrada = zip.getEntry('Metadata/project_settings.config')
-  if (!entrada) return filePath
-  const cfg = JSON.parse(entrada.getData().toString('utf8'))
-  const base = JSON.parse(new AdmZip(getPlantilla(printer)).getEntry('Metadata/project_settings.config').getData().toString('utf8'))
-  const otraImpresora = String(cfg.printer_settings_id || '') !== String(base.printer_settings_id)
-  const claves = [...CLAVES_GEMELAS.proceso, ...(otraImpresora ? CLAVES_GEMELAS.maquina : [])]
-  for (const k of claves) if (k in base) cfg[k] = base[k]
-  zip.updateFile('Metadata/project_settings.config', Buffer.from(JSON.stringify(cfg, null, 4), 'utf8'))
-  if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true })
-  const salida = path.join(TEMP_DIR, 'proyecto_brumet.3mf')
-  zip.writeZip(salida)
-  console.log(`[Brumet] 3MF con perfil ${base.print_settings_id}` + (otraImpresora ? ` (venía para ${cfg.printer_settings_id || '?'})` : ''))
+// Perfil Gemelas y máquina A1 tal como están en el Bambu Studio del dueño (perfiles/*.json, sacados con
+// Brumo con los mismos datos que usa su cotizador; si el dueño cambia Gemelas, hay que volver a sacarlos).
+// Se le pasan al motor aparte (--load-settings) en vez de tocar el proyecto: así Bambu hace la conversión
+// completa (cambiar los ajustes dentro del 3MF dejaba cosas a medias y fallaba).
+function ajustesBrumet(filePath, printer) {
+  if (printer && printer !== 'Bambu A1') return []        // Gemelas es un perfil de la A1
+  const proceso = resolveProfile('proceso_gemelas.json'), maquina = resolveProfile('maquina_a1.json')
+  if (!fs.existsSync(proceso) || !fs.existsSync(maquina)) return []
+  let cfg = {}
+  try { cfg = JSON.parse(new AdmZip(filePath).getEntry('Metadata/project_settings.config').getData().toString('utf8')) } catch(e) { return [] }
+  const impresora = String(cfg.printer_settings_id || '').toLowerCase()
+  const esA1 = /\ba1\b/.test(impresora) && !/mini/.test(impresora)
+  if (!esA1) {
+    console.log(`[Brumet] 3MF hecho para ${cfg.printer_settings_id || '?'}: se lamina para la A1 con Gemelas`)
+    return ['--load-settings', `${maquina};${proceso}`]
+  }
+  if (/gemelas/i.test(String(cfg.print_settings_id || ''))) return []
+  console.log(`[Brumet] 3MF con perfil ${cfg.print_settings_id || '?'}: se lamina con Gemelas`)
+  return ['--load-settings', proceso]
+}
+
+// Resumen de cada placa que deja el motor en el laminado (igual que lo lee el cotizador de Brumo):
+// { [placa]: { segs, gramos } } con el tiempo total y el peso con purga
+function datosDelLaminado(archivo) {
+  const salida = {}
+  try {
+    const xml = new AdmZip(archivo).getEntry('Metadata/slice_info.config').getData().toString('utf8')
+    const re = /<plate>([\s\S]*?)<\/plate>/g
+    let m
+    while ((m = re.exec(xml)) !== null) {
+      const b = m[1]
+      const dato = k => { const r = b.match(new RegExp('key="' + k + '"\s+value="([^"]*)"')); return r ? parseFloat(r[1]) : 0 }
+      const usados = [...b.matchAll(/used_g="([\d.]+)"/g)].reduce((s, x) => s + parseFloat(x[1]), 0)
+      salida[dato('index')] = { segs: dato('prediction'), gramos: Math.max(dato('weight'), usados) }
+    }
+  } catch(e) { /* sin resumen: se usa result.json */ }
   return salida
+}
+
+// ¿El proyecto trae piezas pintadas a colores?
+function esPintado(filePath) {
+  try {
+    for (const e of new AdmZip(filePath).getEntries()) {
+      if (!/\.model$/i.test(e.entryName)) continue
+      const t = e.getData().toString('utf8')
+      if (t.indexOf('paint_color=') !== -1 || t.indexOf('mmu_segmentation') !== -1) return true
+    }
+  } catch(e) {}
+  return false
 }
 
 function contarPlacas(filePath) {
