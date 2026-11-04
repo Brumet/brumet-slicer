@@ -513,6 +513,7 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
     <div class="modal-body">
       <p id="corteTexto" style="line-height:1.55;margin:0 0 12px"></p>
       <p style="line-height:1.55;margin:0 0 14px;color:var(--txt2)">La cotización que ves ya cuenta el filamento y el tiempo de todas las partes, y la unión de las piezas.</p>
+      <p style="line-height:1.55;margin:0 0 14px">También puedes cortarlo aquí mismo: abre <b>Ver en 3D</b> → <b>Cortar</b>, pártelo y vuelve a cotizar; la app lamina cada parte en su propia cama.</p>
       <div id="corteTutorial">
         <div style="font-weight:600;margin-bottom:8px">Cómo cortarlo en Bambu Studio (para imprimirlo)</div>
         <ol style="margin:0 0 12px 18px;padding:0;line-height:1.6">
@@ -929,6 +930,10 @@ async function procesar() {
     const extraData={
       ...(viewerDims?{scaleX:viewerDims.sx,scaleY:viewerDims.sy,scaleZ:viewerDims.sz,scalePct:viewerDims.tempSTLPath?'100':null}:{}),
       impresora: selectedPrinter,
+      // Modelo cortado en el visor cuyas piezas no caben en una sola cama
+      partes: viewerDims && viewerDims.partesSTL,
+      // El STL del visor ya viene en mm: no volver a detectar unidades
+      desdeVisor: !!(viewerDims && viewerDims.tempSTLPath),
       // Si hay STL transformado del visor, ese ES el archivo a laminar (trae la
       // escala/rotación del usuario). Pasar originalPath aquí haría que main.js
       // lamine el archivo original sin transformar (bug: cotizaba el modelo chico).
@@ -1054,7 +1059,7 @@ async function procesar() {
     ipcRenderer.send('log-cotizacion', entryLight)
   } catch(err) {
     if (String(err).includes('CANCELADO')) { /* cancelado por el usuario, sin alerta */ }
-    else alert('Error al procesar: '+err)
+    else alert('Error al procesar: '+String(err && err.message || err).replace(/^Error:\s*/,'').replace(/Error invoking remote method '[^']*':\s*(Error:\s*)?/,''))
   }
   finally {
     btn.innerHTML='Calcular Cotizacion'; btn.disabled=false; msg.style.display='none'
