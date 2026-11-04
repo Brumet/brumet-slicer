@@ -503,6 +503,38 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
   </div>
 </div>
 
+<!-- Aviso: el modelo es más grande que la cama (con mini tutorial para cortarlo) -->
+<div class="modal-overlay" id="corteModal" onclick="if(event.target===this)cerrarAvisoCorte()">
+  <div class="hist-modal" style="max-width:560px;max-height:88vh;overflow:auto">
+    <div class="modal-head">
+      <h2>El modelo no cabe en la impresora</h2>
+      <button class="modal-close" onclick="cerrarAvisoCorte()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p id="corteTexto" style="line-height:1.55;margin:0 0 12px"></p>
+      <p style="line-height:1.55;margin:0 0 14px;color:var(--txt2)">La cotización que ves ya cuenta el filamento y el tiempo de todas las partes, y la unión de las piezas.</p>
+      <div id="corteTutorial">
+        <div style="font-weight:600;margin-bottom:8px">Cómo cortarlo en Bambu Studio (para imprimirlo)</div>
+        <ol style="margin:0 0 12px 18px;padding:0;line-height:1.6">
+          <li>Abre el archivo en <b>Bambu Studio</b>.</li>
+          <li>Haz clic en la pieza y presiona la tecla <b>C</b> (herramienta <b>Cortar</b>).</li>
+          <li>Mueve el <b>plano rojo</b> hasta donde quieras partirla. Cada parte debe medir <b>menos de 25,6 cm</b> por lado. Puedes girar el plano con las flechas.</li>
+          <li>En <b>Conectores</b> elige <b>Clavija</b> y haz clic sobre el corte para ponerlos: así las partes encajan al pegarlas.</li>
+          <li>Presiona <b>Cortar</b>. Si alguna parte sigue siendo muy grande, córtala otra vez.</li>
+          <li>Presiona <b>A</b> (<b>Organizar</b>): Bambu reparte las partes en las camas que hagan falta. Lamina e imprime como siempre.</li>
+        </ol>
+        <label style="display:flex;gap:8px;align-items:center;cursor:pointer;color:var(--txt2)">
+          <input type="checkbox" id="corteNoMostrar"> Ya sé hacerlo: no mostrar más el tutorial
+        </label>
+      </div>
+      <button id="corteVerTutorial" onclick="verTutorialCorte()" style="display:none;background:none;border:none;color:var(--red);cursor:pointer;padding:0;text-decoration:underline">Ver cómo cortarlo</button>
+    </div>
+    <div class="modal-footer">
+      <button class="pwd-btn" style="margin:0" onclick="cerrarAvisoCorte()">Entendido</button>
+    </div>
+  </div>
+</div>
+
 <!-- Historial modal -->
 <div class="modal-overlay" id="historialModal" onclick="if(event.target===this)closeHistorial()">
   <div class="hist-modal">
@@ -874,11 +906,12 @@ function formatHorasTotal(h) {
   const horas = Math.floor(h), mins = Math.round((h - horas) * 60)
   return horas > 0 ? `${horas}h ${mins}m` : `${mins}m`
 }
-function calcularPrecio(horas, gramos) {
+function calcularPrecio(horas, gramos, partes) {
   const mat=(precioKG/1000)*gramos, ene=(cfg.energiaW/1000)*cfg.tarifaEnergia*horas
   const des=(cfg.desgasteTotal/cfg.horasDesgaste)*horas
   const ope=cfg.operarioPorHora*horas, esp=cfg.espacioPorHora*horas
-  const fijos=cfg.costoMontaje+cfg.costoMaquinado
+  // Un modelo cortado en partes: cada parte extra se monta (pega y ajusta) aparte
+  const fijos=cfg.costoMontaje*Math.max(1, partes||1)+cfg.costoMaquinado
   const sub=mat+ene+des+ope+esp+fijos
   const total=Math.round(sub*(1+cfg.margenPct/100)*cfg.markup)
   return{total,desglose:{material:mat,energia:ene,desgaste:des,operario:ope,espacio:esp,fijos,subtotal:sub}}
@@ -903,7 +936,8 @@ async function procesar() {
     }
     const resultado=await ipcRenderer.invoke('slice-model',fileToSlice,extraData)
     const horas=parseFloat(resultado.horas), gramos=parseFloat(resultado.gramos)
-    const {total,desglose}=calcularPrecio(horas,gramos)
+    const partes = resultado.excede ? resultado.excede.partes : 1
+    const {total,desglose}=calcularPrecio(horas,gramos,partes)
 
     // ── Cantidad y descuento por mayoreo ──
     const cantidad = Math.max(1, parseInt(document.getElementById('cantidad').value) || 1)
@@ -967,6 +1001,21 @@ async function procesar() {
       multicamaEl.style.display = 'none'
     }
 
+    // ── Avisos: no cabe en la cama / 3MF de una versión más nueva de Bambu ──
+    let avisoEl = document.getElementById('avisoCotizacion')
+    if (!avisoEl) {
+      avisoEl = document.createElement('div')
+      avisoEl.id = 'avisoCotizacion'
+      avisoEl.style.cssText = 'margin:0 0 12px;padding:10px 12px;border-radius:8px;background:var(--surf-h);font-size:13px;line-height:1.5'
+      const priceBox = document.querySelector('.price-box')
+      priceBox.parentNode.insertBefore(avisoEl, priceBox)
+    }
+    const avisos = []
+    if (resultado.excede) avisos.push(`⚠️ No cabe en la impresora: se imprime en unas ${resultado.excede.partes} partes (ya incluido en el precio). <a href="#" onclick="abrirAvisoCorte(lastResult.excede);return false">Ver cómo cortarlo</a>`)
+    if (resultado.desdeGeometria) avisos.push('ℹ️ Este 3MF se hizo con una versión más nueva de Bambu Studio: se cotizó con su forma y el perfil de la app (sus colores y ajustes propios no se tomaron en cuenta).')
+    avisoEl.innerHTML = avisos.join('<br>')
+    avisoEl.style.display = avisos.length ? 'block' : 'none'
+
     document.getElementById('result').style.display='block'
     document.getElementById('result').scrollIntoView({behavior:'smooth'})
     const thumbnail = generateThumbnail(currentFilePath)
@@ -987,8 +1036,10 @@ async function procesar() {
       archivoPath: fileToSlice,
       desglose,
       thumbnail,
-      camas:       resultado.camas
+      camas:       resultado.camas,
+      excede:      resultado.excede || null
     }
+    if (resultado.excede) abrirAvisoCorte(resultado.excede)
     // Resetear botón de aprobar para la nueva cotización
     const btnA = document.getElementById('btnAprobar')
     btnA.disabled = false
@@ -1322,6 +1373,32 @@ async function openHistorial() {
   document.getElementById('historialModal').classList.add('open')
 }
 function closeHistorial() { document.getElementById('historialModal').classList.remove('open') }
+
+// ── Modelo más grande que la cama ─────────────────────────────────────────────
+const CLAVE_TUTORIAL_CORTE = 'brumet-ocultar-tutorial-corte'
+function abrirAvisoCorte(ex) {
+  const cm = mm => (mm / 10).toLocaleString('es-CO', { maximumFractionDigits: 1 })
+  document.getElementById('corteTexto').innerHTML =
+    `Este modelo mide <b>${cm(ex.dimX)} × ${cm(ex.dimY)} × ${cm(ex.dimZ)} cm</b> y la cama de la impresora es de ` +
+    `<b>${cm(ex.cama)} × ${cm(ex.cama)} cm</b>. Para imprimirlo hay que <b>cortarlo en unas ${ex.partes} partes</b> y pegarlas.`
+  let oculto = false
+  try { oculto = localStorage.getItem(CLAVE_TUTORIAL_CORTE) === '1' } catch (e) {}
+  document.getElementById('corteTutorial').style.display = oculto ? 'none' : 'block'
+  document.getElementById('corteVerTutorial').style.display = oculto ? 'inline' : 'none'
+  document.getElementById('corteNoMostrar').checked = oculto
+  document.getElementById('corteModal').classList.add('open')
+}
+function verTutorialCorte() {
+  document.getElementById('corteTutorial').style.display = 'block'
+  document.getElementById('corteVerTutorial').style.display = 'none'
+}
+function cerrarAvisoCorte() {
+  try {
+    if (document.getElementById('corteNoMostrar').checked) localStorage.setItem(CLAVE_TUTORIAL_CORTE, '1')
+    else localStorage.removeItem(CLAVE_TUTORIAL_CORTE)
+  } catch (e) {}
+  document.getElementById('corteModal').classList.remove('open')
+}
 
 function filtrarHistorial() {
   const q = document.getElementById('histSearch').value.toLowerCase().trim()

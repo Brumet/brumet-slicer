@@ -2,6 +2,7 @@ const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
 const AdmZip = require('adm-zip')
+const { geometriaDe3MF } = require('./leer-3mf.js')
 
 const BAMBU_EXE = (() => {
   // Dev: el exe está junto al proyecto
@@ -192,18 +193,17 @@ function repararMalla(verts, tris) {
   return { verts: newVerts, tris: cleanTris }
 }
 
-function stlToModelXML(stlPath, scalePct) {
+function stlAMalla(stlPath, scalePct) {
   const buf = fs.readFileSync(stlPath)
   const escalaUsuario = (scalePct || 100) / 100
-  let verts = []
-  let tris = []
+  const verts = []
+  const tris = []
 
   if (esSTLAscii(buf)) {
     const texto = buf.toString('utf8')
     const bbox = bboxDeSTLAscii(texto)
     const bboxMax = Math.max(bbox.maxX-bbox.minX, bbox.maxY-bbox.minY, bbox.maxZ-bbox.minZ)
-    const escalaAuto = calcularEscala(bboxMax)
-    const escala = escalaAuto
+    const escala = calcularEscala(bboxMax)
     const re = /facet normal[\s\S]*?endloop/g
     let faceta
     while ((faceta = re.exec(texto)) !== null) {
@@ -225,8 +225,7 @@ function stlToModelXML(stlPath, scalePct) {
     const faceCount = dv.getUint32(80, true)
     const bboxRaw = bboxDeSTLBinario(buf, 1)
     const bboxMax = Math.max(bboxRaw.maxX-bboxRaw.minX, bboxRaw.maxY-bboxRaw.minY, bboxRaw.maxZ-bboxRaw.minZ)
-    const escalaAuto = calcularEscala(bboxMax)
-    const escala = escalaAuto
+    const escala = calcularEscala(bboxMax)
     let off = 84
     for (let i=0; i<faceCount; i++) {
       off += 12
@@ -243,63 +242,15 @@ function stlToModelXML(stlPath, scalePct) {
       off += 2
     }
   }
-
-  const reparado = repararMalla(verts, tris)
-  verts = reparado.verts
-  tris = reparado.tris
-
-  let xml = `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
- <metadata name="BambuStudio:3mfVersion">1</metadata>
- <resources>
-  <object id="1" p:UUID="00010000-81cb-4c03-9d28-80fed5dfa1dc" type="model">
-   <mesh>
-    <vertices>\n`
-
-  for (const [x,y,z] of verts) {
-    xml += `     <vertex x="${x.toFixed(6)}" y="${y.toFixed(6)}" z="${z.toFixed(6)}"/>\n`
-  }
-  xml += `    </vertices>
-    <triangles>\n`
-  for (const [v1,v2,v3] of tris) {
-    xml += `     <triangle v1="${v1}" v2="${v2}" v3="${v3}"/>\n`
-  }
-  xml += `    </triangles>
-   </mesh>
-  </object>
- </resources>
-</model>`
-
-  return xml
-}
-
-function calcularBboxFinal(stlPath, scalePct) {
-  const buf = fs.readFileSync(stlPath)
-  const escalaUsuario = (scalePct || 100) / 100
-  if (esSTLAscii(buf)) {
-    const texto = buf.toString('utf8')
-    const bbox = bboxDeSTLAscii(texto)
-    const bboxMax = Math.max(bbox.maxX-bbox.minX, bbox.maxY-bbox.minY, bbox.maxZ-bbox.minZ)
-    const escala = calcularEscala(bboxMax) * escalaUsuario
-    return {
-      minX: bbox.minX*escala, maxX: bbox.maxX*escala,
-      minY: bbox.minY*escala, maxY: bbox.maxY*escala,
-      minZ: bbox.minZ*escala, maxZ: bbox.maxZ*escala
-    }
-  } else {
-    const bboxRaw = bboxDeSTLBinario(buf, 1)
-    const bboxMax = Math.max(bboxRaw.maxX-bboxRaw.minX, bboxRaw.maxY-bboxRaw.minY, bboxRaw.maxZ-bboxRaw.minZ)
-    const escala = calcularEscala(bboxMax) * escalaUsuario
-    return bboxDeSTLBinario(buf, escala)
-  }
+  return repararMalla(verts, tris)
 }
 
 // ── OBJ parser ────────────────────────────────────────────────────────────────
-function objToModelXML(objPath, scalePct) {
+function objAMalla(objPath, scalePct) {
   const texto = fs.readFileSync(objPath, 'utf8')
   const escalaUsuario = (scalePct || 100) / 100
   const rawVerts = []
-  let tris = []
+  const tris = []
 
   texto.split('\n').forEach(line => {
     const t = line.trim()
@@ -315,37 +266,90 @@ function objToModelXML(objPath, scalePct) {
     }
   })
 
-  const maxCoord = rawVerts.reduce((m, v) => Math.max(m, Math.abs(v[0]), Math.abs(v[1]), Math.abs(v[2])), 0)
-  const escalaAuto = calcularEscala(maxCoord)
-  const escala = escalaAuto * escalaUsuario
+  // Misma regla que el visor: por el tamaño del modelo, no por la coordenada más lejana
+  const b = bboxDe(rawVerts)
+  const escala = calcularEscala(Math.max(b.maxX-b.minX, b.maxY-b.minY, b.maxZ-b.minZ)) * escalaUsuario
+  return repararMalla(rawVerts.map(([x,y,z]) => [x*escala, y*escala, z*escala]), tris)
+}
 
-  let verts = rawVerts.map(([x,y,z]) => [x*escala, y*escala, z*escala])
+// 3MF que el motor no pudo leer (versión más nueva de Bambu Studio): se toma su geometría
+function tresMFAMalla(ruta, scalePct) {
+  const { verts, tris, piezas, medidas, rangos } = geometriaDe3MF(ruta)
+  const f = (scalePct || 100) / 100
+  console.log(`[Brumet] 3MF leído a mano: ${piezas} pieza(s), ${tris.length} triángulos`)
+  if (piezas > 1) acomodarPiezas(verts, medidas, rangos)
+  return { verts: f === 1 ? verts : verts.map(([x,y,z]) => [x*f, y*f, z*f]), tris,
+           medidas: medidas.map(m => m.map(v => v*f)) }
+}
 
-  const reparado = repararMalla(verts, tris)
-  verts = reparado.verts
-  tris = reparado.tris
+// Un proyecto con varias placas trae las piezas regadas lejos unas de otras. Se ponen juntas,
+// en filas (de la más alta a la más baja), para que la cama virtual sea lo más chica posible:
+// laminar una cama gigante casi vacía hace que el motor se demore muchísimo.
+function acomodarPiezas(verts, medidas, rangos) {
+  const SEP = 5
+  const area = medidas.reduce((s, [x, y]) => s + (x + SEP) * (y + SEP), 0)
+  const ancho = Math.max(CAMA_MM, Math.max(...medidas.map(m => m[0])), Math.sqrt(area) * 1.15)
+  const orden = medidas.map((m, i) => i).sort((a, b) => medidas[b][1] - medidas[a][1])
+  let x = 0, y = 0, fila = 0
+  for (const i of orden) {
+    const [dx, dy] = medidas[i]
+    if (x > 0 && x + dx > ancho) { x = 0; y += fila + SEP; fila = 0 }
+    const [desde, hasta, lo] = rangos[i]
+    for (let v = desde; v < hasta; v++) {
+      verts[v][0] += x - lo[0]
+      verts[v][1] += y - lo[1]
+      verts[v][2] -= lo[2]
+    }
+    x += dx + SEP
+    fila = Math.max(fila, dy)
+  }
+}
 
-  let xml = `<?xml version="1.0" encoding="UTF-8"?>
+function bboxDe(verts) {
+  let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity
+  for (const [x,y,z] of verts) {
+    if(x<minX)minX=x; if(x>maxX)maxX=x
+    if(y<minY)minY=y; if(y>maxY)maxY=y
+    if(z<minZ)minZ=z; if(z>maxZ)maxZ=z
+  }
+  return {minX,minY,minZ,maxX,maxY,maxZ}
+}
+
+function mallaAModelXML(verts, tris) {
+  const partes = [`<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p">
  <metadata name="BambuStudio:3mfVersion">1</metadata>
  <resources>
   <object id="1" p:UUID="00010000-81cb-4c03-9d28-80fed5dfa1dc" type="model">
    <mesh>
-    <vertices>\n`
-  for (const [x,y,z] of verts) xml += `     <vertex x="${x.toFixed(6)}" y="${y.toFixed(6)}" z="${z.toFixed(6)}"/>\n`
-  xml += `    </vertices>\n    <triangles>\n`
-  for (const [v1,v2,v3] of tris) xml += `     <triangle v1="${v1}" v2="${v2}" v3="${v3}"/>\n`
-  xml += `    </triangles>\n   </mesh>\n  </object>\n </resources>\n</model>`
-  return xml
+    <vertices>`]
+  for (const [x,y,z] of verts) partes.push(`     <vertex x="${x.toFixed(6)}" y="${y.toFixed(6)}" z="${z.toFixed(6)}"/>`)
+  partes.push('    </vertices>\n    <triangles>')
+  for (const [v1,v2,v3] of tris) partes.push(`     <triangle v1="${v1}" v2="${v2}" v3="${v3}"/>`)
+  partes.push('    </triangles>\n   </mesh>\n  </object>\n </resources>\n</model>')
+  return partes.join('\n')
+}
+
+// ── Cama: la A1 mide 256 mm. Un modelo más grande hay que cortarlo en partes ──
+// Para COTIZARLO sin cortarlo se lamina en una "cama virtual" más grande: el
+// filamento y el tiempo son prácticamente los mismos que sumando las partes.
+const CAMA_MM = 256
+const UTIL_MM = 240          // lo que de verdad se aprovecha por parte (márgenes, conectores)
+
+function infoExcede(dimX, dimY, dimZ) {
+  if (dimX <= CAMA_MM && dimY <= CAMA_MM && dimZ <= CAMA_MM) return null
+  const partes = Math.ceil(dimX / UTIL_MM) * Math.ceil(dimY / UTIL_MM) * Math.ceil(dimZ / UTIL_MM)
+  return { dimX: Math.round(dimX), dimY: Math.round(dimY), dimZ: Math.round(dimZ), cama: CAMA_MM, partes: Math.max(2, partes) }
 }
 
 // ── Preparar 3MF para laminar (STL, OBJ o 3MF directo) ───────────────────────
-function prepararArchivo(filePath, scalePct, callback, printer) {
+// callback(err, archivo, excede): excede = null si cabe, o {dimX, dimY, dimZ, cama, partes}
+function prepararArchivo(filePath, scalePct, callback, printer, leerGeometria) {
   const ext = path.extname(filePath).toLowerCase()
 
-  if (ext === '.3mf') {
-    // Pasar directamente a BambuStudio — ya tiene configuración interna
-    callback(null, filePath)
+  if (ext === '.3mf' && !leerGeometria) {
+    // Primero tal cual: así se respetan sus colores, placas y ajustes
+    callback(null, filePath, null)
     return
   }
 
@@ -354,50 +358,38 @@ function prepararArchivo(filePath, scalePct, callback, printer) {
 
   try {
     const zip = new AdmZip(getPlantilla(printer))
-    let modelXML
-
-    if (ext === '.obj') {
-      modelXML = objToModelXML(filePath, scalePct)
-    } else {
-      // STL (default)
-      modelXML = stlToModelXML(filePath, scalePct)
-    }
-
-    zip.updateFile('3D/Objects/object_1.model', Buffer.from(modelXML, 'utf8'))
-
-    // Calcular bbox para posicionamiento
-    let bbox
-    if (ext === '.obj') {
-      const texto = fs.readFileSync(filePath, 'utf8')
-      let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity
-      texto.split('\n').forEach(line => {
-        const t = line.trim()
-        if (t.startsWith('v ')) {
-          const p = t.split(/\s+/)
-          const x=parseFloat(p[1]),y=parseFloat(p[2]),z=parseFloat(p[3])
-          if(x<minX)minX=x;if(x>maxX)maxX=x
-          if(y<minY)minY=y;if(y>maxY)maxY=y
-          if(z<minZ)minZ=z;if(z>maxZ)maxZ=z
-        }
-      })
-      const maxCoord = Math.max(maxX-minX,maxY-minY,maxZ-minZ)
-      const escala = calcularEscala(maxCoord) * ((scalePct||100)/100)
-      bbox = {minX:minX*escala,maxX:maxX*escala,minY:minY*escala,maxY:maxY*escala,minZ:minZ*escala,maxZ:maxZ*escala}
-    } else {
-      bbox = calcularBboxFinal(filePath, scalePct)
-    }
-
-    // Protección: si el modelo excede la cama (256mm), avisar en vez de
-    // laminar algo que BambuStudio va a rechazar o cotizar mal.
-    const CAMA_MM = 256
+    const malla = ext === '.3mf' ? tresMFAMalla(filePath, scalePct)
+      : ext === '.obj' ? objAMalla(filePath, scalePct)
+      : stlAMalla(filePath, scalePct)
+    const bbox = bboxDe(malla.verts)
     const dimX = bbox.maxX-bbox.minX, dimY = bbox.maxY-bbox.minY, dimZ = bbox.maxZ-bbox.minZ
-    if (dimX > CAMA_MM || dimY > CAMA_MM || dimZ > CAMA_MM) {
-      callback(`El modelo mide ${Math.round(dimX)}×${Math.round(dimY)}×${Math.round(dimZ)}mm y excede la cama de impresión (${CAMA_MM}mm). Ábrelo con "Ver en 3D", ajústalo con la herramienta Escalar y vuelve a cotizar.`)
-      return
+    // Un 3MF puede traer varias piezas repartidas en varias placas: lo que debe caber en
+    // la cama es cada pieza, no todo el proyecto junto.
+    const piezas = malla.medidas || [[dimX, dimY, dimZ]]
+    const excede = piezas.map(([x, y, z]) => infoExcede(x, y, z)).filter(Boolean)
+      .reduce((peor, e) => (!peor || e.partes > peor.partes ? e : peor), null)
+    const noCabeJunto = dimX > CAMA_MM || dimY > CAMA_MM || dimZ > CAMA_MM
+    zip.updateFile('3D/Objects/object_1.model', Buffer.from(mallaAModelXML(malla.verts, malla.tris), 'utf8'))
+
+    // Cama virtual si no cabe (solo para cotizar)
+    let cama = CAMA_MM
+    if (noCabeJunto) {
+      cama = Math.ceil((Math.max(dimX, dimY) + 40) / 50) * 50
+      const alto = Math.max(CAMA_MM, Math.ceil((dimZ + 20) / 50) * 50)
+      const cfgEntry = zip.getEntry('Metadata/project_settings.config')
+      const cfgProyecto = JSON.parse(cfgEntry.getData().toString('utf8'))
+      cfgProyecto.printable_area = ['0x0', `${cama}x0`, `${cama}x${cama}`, `0x${cama}`]
+      cfgProyecto.printable_height = String(alto)
+      cfgProyecto.extruder_clearance_height_to_lid = String(alto)
+      cfgProyecto.bed_exclude_area = []
+      zip.updateFile('Metadata/project_settings.config', Buffer.from(JSON.stringify(cfgProyecto, null, 4), 'utf8'))
+      console.log(`[Brumet] ${Math.round(dimX)}x${Math.round(dimY)}x${Math.round(dimZ)} mm en total: cotizado en cama virtual de ${cama} mm` +
+        (excede ? ` (una pieza no cabe: ~${excede.partes} partes)` : ` (${piezas.length} piezas, cada una cabe)`))
     }
 
     const {minX,maxX,minY,maxY,minZ} = bbox
-    const cx = 128-(minX+maxX)/2, cy = 128-(minY+maxY)/2, cz = -minZ
+    const mitad = cama / 2
+    const cx = mitad-(minX+maxX)/2, cy = mitad-(minY+maxY)/2, cz = -minZ
     const transform = `1 0 0 0 1 0 0 0 1 ${cx.toFixed(4)} ${cy.toFixed(4)} ${cz.toFixed(4)}`
 
     const mainEntry = zip.getEntry('3D/3dmodel.model')
@@ -418,7 +410,7 @@ function prepararArchivo(filePath, scalePct, callback, printer) {
       zip.updateFile('Metadata/plate_1.json', Buffer.from(JSON.stringify(plate1), 'utf8'))
     }
     zip.writeZip(temp3MF)
-    callback(null, temp3MF)
+    callback(null, temp3MF, excede)
   } catch(e) {
     callback('Error preparando archivo: ' + e.message)
   }
@@ -440,13 +432,28 @@ function cancelarLaminado() {
   if (procActual) { try { procActual.kill() } catch(e) {} }
 }
 
-function laminarConBambu(filePath, scalePct, callback, printer) {
-  prepararArchivo(filePath, scalePct, (err, archivoFinal) => {
+// Un 3MF se intenta primero tal cual (respeta colores y placas). Si el motor no lo
+// entiende o se queda pegado, se cotiza con su geometría: así ninguna actualización
+// de Bambu Studio vuelve a dejar a la app sin poder cotizar.
+const TIMEOUT_3MF_DIRECTO_MS = 3 * 60 * 1000
+
+function laminarConBambu(filePath, scalePct, callback, printer, leerGeometria) {
+  const es3MF = path.extname(filePath).toLowerCase() === '.3mf'
+  prepararArchivo(filePath, scalePct, (err, archivoFinal, excede) => {
     if (err) return callback(err)
 
     const resultPath = path.join(OUTPUT_DIR, 'result.json')
     if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath)
     if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true })
+
+    let terminado = false
+    const terminar = (e, r) => { if (!terminado) { terminado = true; callback(e, r) } }
+    const directo3MF = es3MF && !leerGeometria
+    const plan_b = (motivo) => {
+      console.log(`[Brumet] El motor no pudo con el 3MF (${motivo}); se cotiza con su geometría`)
+      terminado = true
+      laminarConBambu(filePath, scalePct, callback, printer, true)
+    }
 
     cancelado = false
     const proc = spawn(BAMBU_EXE, ['--slice', '1', '--outputdir', OUTPUT_DIR, archivoFinal])
@@ -458,29 +465,29 @@ function laminarConBambu(filePath, scalePct, callback, printer) {
     // Timeout de seguridad: si BambuStudio cuelga, matar el proceso
     const timer = setTimeout(() => {
       try { proc.kill() } catch(e) {}
-      callback('BambuStudio tardó más de 10 minutos. Intenta con un modelo más simple.')
-    }, SLICE_TIMEOUT_MS)
+      if (directo3MF) return plan_b('se demoró demasiado')
+      terminar('BambuStudio tardó más de 10 minutos. Intenta con un modelo más simple.')
+    }, directo3MF ? TIMEOUT_3MF_DIRECTO_MS : SLICE_TIMEOUT_MS)
 
     proc.on('close', (code) => {
       clearTimeout(timer)
       procActual = null
-      if (cancelado) return callback('CANCELADO')
-      if (!fs.existsSync(resultPath)) return callback('BambuStudio no generó result.json. ' + stderr)
+      if (terminado) return
+      if (cancelado) return terminar('CANCELADO')
+      if (!fs.existsSync(resultPath)) {
+        if (directo3MF) return plan_b('no generó result.json')
+        return terminar('BambuStudio no generó result.json. ' + stderr)
+      }
       try {
         const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'))
         if (result.return_code !== 0) {
-          // El motor BambuStudio embebido (version fija) a veces no puede leer 3MF
-          // exportados con una version mas nueva de Bambu Studio / MakerWorld.
-          const esVersion3MFIncompatible = path.extname(filePath).toLowerCase() === '.3mf' &&
-            /unsupported 3mf version/i.test(result.error_string || '')
-          if (esVersion3MFIncompatible) {
-            return callback('Este archivo 3MF se creo con una version de Bambu Studio mas nueva que la que usa esta app y no se puede leer. Abrelo en Bambu Studio (el programa oficial), expórtalo como STL, y vuelve a cotizar con ese STL.')
-          }
-          return callback('BambuStudio error: ' + result.error_string)
+          // Pasa con los 3MF de versiones nuevas de Bambu Studio ("Unsupported 3MF version")
+          if (directo3MF) return plan_b(result.error_string || `código ${result.return_code}`)
+          return terminar('BambuStudio error: ' + result.error_string)
         }
 
         const plates = result.sliced_plates || []
-        if (plates.length === 0) return callback('No se encontraron camas en el resultado')
+        if (plates.length === 0) return terminar('No se encontraron camas en el resultado')
 
         // Procesar todas las camas
         const camasData = plates.map((plate, idx) => {
@@ -497,20 +504,21 @@ function laminarConBambu(filePath, scalePct, callback, printer) {
         const totalGramos = camasData.reduce((s, c) => s + parseFloat(c.gramos), 0)
         const totalHoras  = camasData.reduce((s, c) => s + parseFloat(c.horas), 0)
 
-        callback(null, {
+        terminar(null, {
           camas:      camasData,
           multiCama:  camasData.length > 1,
           // compatibilidad con código anterior (primera cama)
           tiempo:     camasData[0].tiempo,
           horas:      totalHoras.toFixed(2),
-          gramos:     totalGramos.toFixed(2)
+          gramos:     totalGramos.toFixed(2),
+          excede,                                    // null o {dimX, dimY, dimZ, cama, partes}
+          desdeGeometria: es3MF && !!leerGeometria   // 3MF cotizado con su geometría (perfil y color de la app)
         })
       } catch(e) {
-        callback('Error leyendo result.json: ' + e.message)
+        terminar('Error leyendo result.json: ' + e.message)
       }
     })
-  }, printer)
+  }, printer, leerGeometria)
 }
 
 module.exports = { laminarConBambu, cancelarLaminado }
-
