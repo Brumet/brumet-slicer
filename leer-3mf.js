@@ -100,10 +100,14 @@ function geometriaDe3MF(ruta) {
   const principalNombre = [...entradas.keys()].find(k => /^\/3D\/3dmodel\.model$/i.test(k)) || [...entradas.keys()][0]
   if (!principalNombre) throw new Error('el 3MF no trae ningún modelo')
   const cache = new Map()
+  let multicolor = false
   const objetosDe = nombre => {
     if (!cache.has(nombre)) {
       const e = entradas.get(nombre)
-      cache.set(nombre, leerObjetos(e ? e.getData().toString('utf8') : ''))   // el texto se suelta al terminar
+      const texto = e ? e.getData().toString('utf8') : ''
+      // Pintado a colores (o segmentado por colores): sin el motor no se puede contar el purgado
+      if (texto.indexOf('paint_color=') !== -1 || texto.indexOf('mmu_segmentation') !== -1) multicolor = true
+      cache.set(nombre, leerObjetos(texto))   // el texto se suelta al terminar
     }
     return cache.get(nombre)
   }
@@ -155,6 +159,7 @@ function geometriaDe3MF(ruta) {
     const r = armar(items, celda)
     if (r.tris.length <= LIMITE_TRIANGULOS * 1.2 || celda === 0 || celda > 3) {
       r.simplificado = celda > 0 ? { antes: total, despues: r.tris.length, celda } : null
+      r.multicolor = multicolor || extrusoresUsados(zip) > 1
       return r
     }
     celda *= 1.5
@@ -201,6 +206,20 @@ function armar(items, celda) {
     rangos.push([desde, verts.length, lo])
   }
   return { verts, tris, piezas: medidas.length, medidas, rangos }
+}
+
+// Cuántos filamentos distintos usan las piezas del proyecto (model_settings.config)
+function extrusoresUsados(zip) {
+  try {
+    const e = zip.getEntry('Metadata/model_settings.config')
+    if (!e) return 1
+    const usados = new Set()
+    const re = /key="extruder"\s+value="(\d+)"/g
+    let m
+    const t = e.getData().toString('utf8')
+    while ((m = re.exec(t)) !== null) usados.add(m[1])
+    return Math.max(1, usados.size)
+  } catch(e) { return 1 }
 }
 
 module.exports = { geometriaDe3MF }

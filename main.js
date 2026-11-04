@@ -172,7 +172,8 @@ ipcMain.on('log-cotizacion', (ev, q) => {
     `⏱ ${q.tiempo}${q.cantidad > 1 ? ' por pieza' : ''} · ⚖️ ${q.gramos}g${q.cantidad > 1 ? ' por pieza' : ''}` +
     (q.cantidad > 1 ? `\n🔢 ${q.cantidad} piezas · unitario ${fmt(q.precioUnitario)}${q.descuentoPct > 0 ? ` · desc ${q.descuentoPct}%` : ''}` : '') +
     `\n💵 **Total: ${fmt(q.precio)} COP**` +
-    (q.cliente ? `\n👤 ${q.cliente}` : '')
+    (q.cliente ? `\n👤 ${q.cliente}` : '') +
+    (q.porVerificar ? '\n🛑 **Por verificar:** multicolor cotizado sin el purgado de colores (el motor no lo pudo laminar con sus colores)' : '')
   )
 })
 

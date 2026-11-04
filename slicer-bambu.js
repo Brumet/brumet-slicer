@@ -5,6 +5,8 @@ const AdmZip = require('adm-zip')
 const { geometriaDe3MF } = require('./leer-3mf.js')
 
 const BAMBU_EXE = (() => {
+  // Pruebas: otro motor (BRUMET_MOTOR=ruta al bambu-studio.exe)
+  if (process.env.BRUMET_MOTOR && fs.existsSync(process.env.BRUMET_MOTOR)) return process.env.BRUMET_MOTOR
   // Dev: el exe está junto al proyecto
   const devPath = path.join(__dirname, 'BambuStudio', 'bambu-studio.exe')
   if (fs.existsSync(devPath)) return devPath
@@ -68,7 +70,9 @@ function calcularEscala(bboxMax) {
 // 2) Detecta los bordes abiertos restantes (huecos reales en la superficie)
 //    y los tapa triangulando en abanico desde el centroide del hueco.
 let mallaConHuecos = false   // la última malla quedó con huecos que no se pudieron cerrar
-function repararMalla(verts, tris) {
+let ultimoMulticolor = false  // el último 3MF leído a mano era multicolor
+let mallaConParedes = false  // la última malla trae caras internas duplicadas
+function repararMalla(verts, tris, quitarParedes) {
   const EPS = 1e-4
   const map = new Map()
   const newVerts = []
@@ -104,10 +108,13 @@ function repararMalla(verts, tris) {
   let cleanTris = []
   let paredes = 0
   for (const g of grupos.values()) {
-    if (g.pos > 0 && g.neg > 0) { paredes++; continue }
+    // Por defecto la malla queda como la imprime Bambu Studio (una de cada par). Quitar las
+    // dos solo si el motor no pudo laminarla así: quitarlas antes daba hasta 11 % menos material.
+    if (g.pos > 0 && g.neg > 0) { paredes++; if (quitarParedes) continue }
     cleanTris.push(g.tri)
   }
-  if (paredes) console.log(`[Brumet] ${paredes} cara(s) interna(s) duplicada(s) quitada(s)`)
+  if (paredes) mallaConParedes = true
+  if (paredes && quitarParedes) console.log(`[Brumet] ${paredes} cara(s) interna(s) duplicada(s) quitada(s)`)
 
   const vertsAntes = verts.length, trisAntes = tris.length
   console.log(`[Brumet] Malla: ${vertsAntes} vertices / ${trisAntes} triangulos -> ${newVerts.length} vertices soldados / ${cleanTris.length} triangulos validos`)
@@ -273,8 +280,9 @@ function compactarMalla(verts, tris) {
 // STL / OBJ: lee, sanea, escala y repara.
 // unidadesAuto = false cuando el archivo ya viene en mm (STL exportado por el
 // visor 3D): re-detectar unidades multiplicaría x10 una pieza de menos de 10 mm.
-function prepararMalla(filePath, ext, scalePct, unidadesAuto) {
+function prepararMalla(filePath, ext, scalePct, unidadesAuto, quitarParedes) {
   mallaConHuecos = false
+  mallaConParedes = false
   const crudo = ext === '.obj'
     ? leerOBJ(fs.readFileSync(filePath, 'utf8'))
     : leerSTL(fs.readFileSync(filePath))
@@ -294,7 +302,7 @@ function prepararMalla(filePath, ext, scalePct, unidadesAuto) {
     : 1) * ((scalePct || 100) / 100)
 
   const escalados = crudo.verts.map(v => [v[0]*escala, v[1]*escala, v[2]*escala])
-  const reparado = repararMalla(escalados, validos)
+  const reparado = repararMalla(escalados, validos, quitarParedes)
   const malla = compactarMalla(reparado.verts, reparado.tris)
   if (malla.tris.length === 0)
     throw errorUsuario('El modelo no tiene volumen imprimible (todas sus caras son planas o están repetidas). Revisa el archivo en el programa donde se diseñó.')
@@ -308,7 +316,8 @@ function prepararMalla(filePath, ext, scalePct, unidadesAuto) {
 
 // 3MF que el motor no pudo leer (versión más nueva de Bambu Studio): se toma su geometría
 function tresMFAMalla(ruta, scalePct) {
-  const { verts, tris, piezas, medidas, rangos, simplificado } = geometriaDe3MF(ruta)
+  const { verts, tris, piezas, medidas, rangos, simplificado, multicolor } = geometriaDe3MF(ruta)
+  ultimoMulticolor = !!multicolor
   const f = (scalePct || 100) / 100
   console.log(`[Brumet] 3MF leído a mano: ${piezas} pieza(s), ${tris.length} triángulos` +
     (simplificado ? ` (simplificado de ${simplificado.antes} con celdas de ${simplificado.celda} mm)` : ''))
@@ -439,11 +448,14 @@ function infoExcede(dimX, dimY, dimZ) {
 // opciones.unidadesAuto = false: el archivo ya viene en mm (STL exportado por el visor 3D)
 function prepararArchivo(filePath, scalePct, callback, printer, opciones) {
   const ext = path.extname(filePath).toLowerCase()
-  const { leerGeometria = false, unidadesAuto = true, enBloque = false } = opciones || {}
+  const { leerGeometria = false, unidadesAuto = true, enBloque = false, quitarParedes = false } = opciones || {}
 
   if (ext === '.3mf' && !leerGeometria) {
-    // Primero tal cual: así se respetan sus colores, placas y ajustes
-    callback(null, filePath, null)
+    // El proyecto con sus piezas, placas, filamentos y colores, pero con el perfil de Brumet
+    // (Gemelas, impresora de la plantilla): es con lo que se va a imprimir
+    let archivo = filePath
+    try { archivo = proyectoConGemelas(filePath, printer) } catch(e) { console.log('[Brumet] No pude poner Gemelas al 3MF: ' + e.message) }
+    callback(null, archivo, null)
     return
   }
 
@@ -453,7 +465,7 @@ function prepararArchivo(filePath, scalePct, callback, printer, opciones) {
   try {
     const zip = new AdmZip(getPlantilla(printer))
     const malla = ext === '.3mf' ? tresMFAMalla(filePath, scalePct)
-      : prepararMalla(filePath, ext, scalePct, unidadesAuto)
+      : prepararMalla(filePath, ext, scalePct, unidadesAuto, quitarParedes)
     const bbox = bboxDe(malla.verts)
     const dimX = bbox.maxX-bbox.minX, dimY = bbox.maxY-bbox.minY, dimZ = bbox.maxZ-bbox.minZ
     // Un 3MF puede traer varias piezas repartidas en varias placas: lo que debe caber en
@@ -566,12 +578,14 @@ function cancelarLaminado() {
 // Un 3MF se intenta primero tal cual (respeta colores y placas). Si el motor no lo
 // entiende o se queda pegado, se cotiza con su geometría: así ninguna actualización
 // de Bambu Studio vuelve a dejar a la app sin poder cotizar.
-const TIMEOUT_3MF_DIRECTO_MS = 3 * 60 * 1000
+const TIMEOUT_3MF_DIRECTO_MS = 10 * 60 * 1000   // si el PC está ocupado tarda más; el plan B pierde colores
 
 // Un .gcode.3mf ya viene laminado (Bambu Studio → "Exportar archivo laminado"): no trae la forma del
 // modelo sino el G-code, y el tiempo y los gramos de cada placa en Metadata/slice_info.config. Se toman
 // de ahí: son exactamente los de quien lo laminó. Devuelve null si el archivo no es de ese tipo.
 function resultadoDeLaminado(filePath) {
+  // Solo los .gcode.3mf: un proyecto .3mf puede traer un laminado viejo de una sola placa o de otra impresora
+  if (!/\.gcode\.3mf$/i.test(filePath)) return null
   let zip
   try { zip = new AdmZip(filePath) } catch(e) { return null }
   const nombres = zip.getEntries().map(e => e.entryName)
@@ -616,13 +630,16 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
     const terminar = (e, r) => { if (!terminado) { terminado = true; callback(e, r) } }
     const directo3MF = es3MF && !leerGeometria
     const plan_b = (motivo) => {
+      if (opciones && opciones.placa) return terminar(motivo)   // una placa sola: decide laminarPorPlacas
       console.log(`[Brumet] El motor no pudo con el 3MF (${motivo}); se cotiza con su geometría`)
       terminado = true
       laminarConBambu(filePath, scalePct, callback, printer, { ...opciones, leerGeometria: true })
     }
 
     cancelado = false
-    const proc = spawn(BAMBU_EXE, ['--slice', '1', '--outputdir', OUTPUT_DIR, archivoFinal])
+    // Un proyecto 3MF se lamina con TODAS sus placas (0); un modelo suelto va en la placa 1
+    const placa = String((opciones && opciones.placa) || (directo3MF ? 0 : 1))
+    const proc = spawn(BAMBU_EXE, ['--slice', placa, '--outputdir', OUTPUT_DIR, archivoFinal])
     procActual = proc
     let stderr = ''
     proc.stdout.on('data', () => {})           // drenar stdout para evitar bloqueo en Windows
@@ -647,8 +664,18 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
       try {
         const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'))
         if (result.return_code !== 0) {
+          const placaVacia = /plate is empty|no object fully inside/i.test(result.error_string || '')
+          if (directo3MF && opciones && opciones.placa) return terminar(placaVacia ? null : (result.error_string || 'falló'), placaVacia ? { vacia: true } : undefined)
+          // Proyecto con alguna placa vacía: se lamina placa por placa y se suman
+          if (directo3MF && placaVacia) { terminado = true; return laminarPorPlacas(filePath, scalePct, callback, printer, opciones) }
           // Pasa con los 3MF de versiones nuevas de Bambu Studio ("Unsupported 3MF version")
           if (directo3MF) return plan_b(result.error_string || `código ${result.return_code}`)
+          // Caras internas duplicadas: se reintenta quitándolas (la lámpara de 50 cm solo así lamina)
+          if (!es3MF && mallaConParedes && !(opciones && opciones.quitarParedes)) {
+            console.log('[Brumet] El motor no pudo; se reintenta quitando las caras internas duplicadas')
+            terminado = true
+            return laminarConBambu(filePath, scalePct, callback, printer, { ...opciones, quitarParedes: true })
+          }
           return terminar(explicarErrorBambu(result, filePath))
         }
 
@@ -681,7 +708,9 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
           horas:      totalHoras.toFixed(2),
           gramos:     totalGramos.toFixed(2),
           excede,                                    // null o {dimX, dimY, dimZ, cama, partes}
-          desdeGeometria: es3MF && !!leerGeometria   // 3MF cotizado con su geometría (perfil y color de la app)
+          desdeGeometria: es3MF && !!leerGeometria,  // 3MF cotizado con su geometría (perfil y color de la app)
+          // Multicolor por geometría: falta el purgado entre colores (puede ser mucho): hay que verificar
+          multicolorSinPurga: es3MF && !!leerGeometria && ultimoMulticolor
         })
       } catch(e) {
         terminar('Error leyendo result.json: ' + e.message)
@@ -697,7 +726,7 @@ const ENTERA_HASTA_MM = 600
 function cotizarNoCabe(filePath, scalePct, callback, printer, opciones, excede, bloques, es3MF) {
   laminarPartes(bloques, (e, rb) => {
     if (e) return callback(e)
-    const porBloques = { ...rb, excede, enBloques: bloques.length, desdeGeometria: es3MF }
+    const porBloques = { ...rb, excede, enBloques: bloques.length, desdeGeometria: es3MF, multicolorSinPurga: es3MF && ultimoMulticolor }
     if (Math.max(excede.dimX, excede.dimY) > ENTERA_HASTA_MM || excede.dimZ > ENTERA_HASTA_MM) return callback(null, porBloques)
     laminarConBambu(filePath, scalePct, (e2, rv) => {
       if (e2 || !rv) return callback(null, porBloques)   // si entera no se pudo, vale la de bloques
@@ -709,6 +738,62 @@ function cotizarNoCabe(filePath, scalePct, callback, printer, opciones, excede, 
         camas: [{ cama: 1, tiempo: formatTiempo(h * 3600), horas: h.toFixed(2), gramos: g.toFixed(2) }] })
     }, printer, { ...opciones, enBloque: true, leerGeometria: es3MF || (opciones && opciones.leerGeometria) })
   }, printer, { enBloque: true })
+}
+
+// ── Perfil de Brumet en proyectos 3MF ──────────────────────────────────────────
+// Un 3MF trae el perfil de quien lo hizo (en MakerWorld suele ser de poco relleno o de otra
+// impresora). Se le ponen los ajustes de proceso de la plantilla (Gemelas) y, si es de otra
+// impresora, también los de la máquina; filamentos y colores quedan los del proyecto (así cuenta
+// el purgado entre colores). Igual que el cotizador de Brumo.
+const CLAVES_GEMELAS = (() => {
+  try { return JSON.parse(fs.readFileSync(resolveProfile('claves_gemelas.json'), 'utf8')) } catch(e) { return null }
+})()
+function proyectoConGemelas(filePath, printer) {
+  if (!CLAVES_GEMELAS) return filePath
+  const zip = new AdmZip(filePath)
+  const entrada = zip.getEntry('Metadata/project_settings.config')
+  if (!entrada) return filePath
+  const cfg = JSON.parse(entrada.getData().toString('utf8'))
+  const base = JSON.parse(new AdmZip(getPlantilla(printer)).getEntry('Metadata/project_settings.config').getData().toString('utf8'))
+  const otraImpresora = String(cfg.printer_settings_id || '') !== String(base.printer_settings_id)
+  const claves = [...CLAVES_GEMELAS.proceso, ...(otraImpresora ? CLAVES_GEMELAS.maquina : [])]
+  for (const k of claves) if (k in base) cfg[k] = base[k]
+  zip.updateFile('Metadata/project_settings.config', Buffer.from(JSON.stringify(cfg, null, 4), 'utf8'))
+  if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true })
+  const salida = path.join(TEMP_DIR, 'proyecto_brumet.3mf')
+  zip.writeZip(salida)
+  console.log(`[Brumet] 3MF con perfil ${base.print_settings_id}` + (otraImpresora ? ` (venía para ${cfg.printer_settings_id || '?'})` : ''))
+  return salida
+}
+
+function contarPlacas(filePath) {
+  try {
+    const e = new AdmZip(filePath).getEntry('Metadata/model_settings.config')
+    const n = e ? (e.getData().toString('utf8').match(/<plate>/g) || []).length : 0
+    return Math.max(1, n)
+  } catch(e) { return 1 }
+}
+
+// Placa por placa (cuando alguna está vacía) y se suman las que tienen piezas
+function laminarPorPlacas(filePath, scalePct, callback, printer, opciones) {
+  const n = contarPlacas(filePath)
+  const camas = []
+  const siguiente = (k) => {
+    if (k > n) {
+      if (!camas.length) return laminarConBambu(filePath, scalePct, callback, printer, { ...opciones, leerGeometria: true })
+      const g = camas.reduce((s, c) => s + parseFloat(c.gramos), 0), h = camas.reduce((s, c) => s + parseFloat(c.horas), 0)
+      return callback(null, { camas, multiCama: camas.length > 1, tiempo: formatTiempo(h * 3600), horas: h.toFixed(2),
+                              gramos: g.toFixed(2), excede: null, desdeGeometria: false })
+    }
+    laminarConBambu(filePath, scalePct, (err, r) => {
+      if (err === 'CANCELADO') return callback(err)
+      if (err) return laminarConBambu(filePath, scalePct, callback, printer, { ...opciones, leerGeometria: true })  // plan B
+      if (r && !r.vacia) for (const c of r.camas) camas.push({ ...c, cama: camas.length + 1 })
+      siguiente(k + 1)
+    }, printer, { ...opciones, placa: k })
+  }
+  console.log(`[Brumet] El proyecto tiene placas vacías: se lamina placa por placa (${n})`)
+  siguiente(1)
 }
 
 // Modelo cortado en el visor: una pieza (o grupo de piezas) por cama. Se
