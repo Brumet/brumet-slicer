@@ -606,8 +606,7 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
   }
   prepararArchivo(filePath, scalePct, (err, archivoFinal, excede, grande) => {
     if (err) return callback(err)
-    if (grande) return laminarPartes(grande, (e, r) => e ? callback(e) : callback(null, { ...r, excede, enBloques: grande.length,
-      desdeGeometria: es3MF }), printer, { enBloque: true })
+    if (grande) return cotizarNoCabe(filePath, scalePct, callback, printer, opciones, excede, grande, es3MF)
 
     const resultPath = path.join(OUTPUT_DIR, 'result.json')
     if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath)
@@ -689,6 +688,27 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
       }
     })
   }, printer, opciones)
+}
+
+// Pieza que no cabe: se cotiza cortada en bloques (como se imprime). Si no es gigante, también
+// entera en una cama virtual, y se cobra lo MAYOR de las dos: cortar a veces ahorra soportes y
+// da un poco menos, y el dueño no puede perder por una cotización baja.
+const ENTERA_HASTA_MM = 600
+function cotizarNoCabe(filePath, scalePct, callback, printer, opciones, excede, bloques, es3MF) {
+  laminarPartes(bloques, (e, rb) => {
+    if (e) return callback(e)
+    const porBloques = { ...rb, excede, enBloques: bloques.length, desdeGeometria: es3MF }
+    if (Math.max(excede.dimX, excede.dimY) > ENTERA_HASTA_MM || excede.dimZ > ENTERA_HASTA_MM) return callback(null, porBloques)
+    laminarConBambu(filePath, scalePct, (e2, rv) => {
+      if (e2 || !rv) return callback(null, porBloques)   // si entera no se pudo, vale la de bloques
+      const g = Math.max(parseFloat(rb.gramos), parseFloat(rv.gramos))
+      const h = Math.max(parseFloat(rb.horas), parseFloat(rv.horas))
+      if (g === parseFloat(rb.gramos) && h === parseFloat(rb.horas)) return callback(null, porBloques)
+      console.log(`[Brumet] Entera da más que en bloques (${rv.gramos} g / ${rv.horas} h contra ${rb.gramos} g / ${rb.horas} h): se cobra lo mayor`)
+      callback(null, { ...porBloques, multiCama: false, gramos: g.toFixed(2), horas: h.toFixed(2), tiempo: formatTiempo(h * 3600),
+        camas: [{ cama: 1, tiempo: formatTiempo(h * 3600), horas: h.toFixed(2), gramos: g.toFixed(2) }] })
+    }, printer, { ...opciones, enBloque: true, leerGeometria: es3MF || (opciones && opciones.leerGeometria) })
+  }, printer, { enBloque: true })
 }
 
 // Modelo cortado en el visor: una pieza (o grupo de piezas) por cama. Se
