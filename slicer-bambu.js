@@ -67,6 +67,7 @@ function calcularEscala(bboxMax) {
 //    "triangle soup" o de escaneos 3D, que generan miles de "open edges").
 // 2) Detecta los bordes abiertos restantes (huecos reales en la superficie)
 //    y los tapa triangulando en abanico desde el centroide del hueco.
+let mallaConHuecos = false   // la última malla quedó con huecos que no se pudieron cerrar
 function repararMalla(verts, tris) {
   const EPS = 1e-4
   const map = new Map()
@@ -84,17 +85,29 @@ function repararMalla(verts, tris) {
     remap[i] = idx
   }
 
-  // Quitar triángulos degenerados (área 0) y duplicados
-  const seen = new Set()
-  let cleanTris = []
+  // Quitar triángulos degenerados (área 0) y duplicados. Dos caras iguales pero mirando a
+  // lados opuestos son una "pared interna" de grosor cero (pasa al unir piezas mal): se
+  // quitan las dos, porque dejar una sola confunde al motor ("Failed slicing").
+  const grupos = new Map()   // vértices ordenados → [{ tri, paridad }]
   for (const [a, b, c] of tris) {
     const A = remap[a], B = remap[b], C = remap[c]
     if (A === B || B === C || A === C) continue
+    const orden = [A, B, C]
+    const min = Math.min(A, B, C), i = orden.indexOf(min)
+    const rot = [orden[i], orden[(i + 1) % 3], orden[(i + 2) % 3]]   // misma orientación → misma rotación
     const key = [A, B, C].slice().sort((x, y) => x - y).join('_')
-    if (seen.has(key)) continue
-    seen.add(key)
-    cleanTris.push([A, B, C])
+    const sentido = rot[1] < rot[2] ? 1 : -1
+    if (!grupos.has(key)) grupos.set(key, { tri: [A, B, C], pos: 0, neg: 0 })
+    const g = grupos.get(key)
+    if (sentido > 0) g.pos++; else g.neg++
   }
+  let cleanTris = []
+  let paredes = 0
+  for (const g of grupos.values()) {
+    if (g.pos > 0 && g.neg > 0) { paredes++; continue }
+    cleanTris.push(g.tri)
+  }
+  if (paredes) console.log(`[Brumet] ${paredes} cara(s) interna(s) duplicada(s) quitada(s)`)
 
   const vertsAntes = verts.length, trisAntes = tris.length
   console.log(`[Brumet] Malla: ${vertsAntes} vertices / ${trisAntes} triangulos -> ${newVerts.length} vertices soldados / ${cleanTris.length} triangulos validos`)
@@ -151,6 +164,7 @@ function repararMalla(verts, tris) {
       huecosRellenados++
     }
     console.log(`[Brumet] ${huecosRellenados} hueco(s) rellenado(s), ${huecosOmitidos} omitido(s) (demasiado grandes/irregulares)`)
+    if (huecosOmitidos > 0) mallaConHuecos = true
   }
 
   return { verts: newVerts, tris: cleanTris }
@@ -260,6 +274,7 @@ function compactarMalla(verts, tris) {
 // unidadesAuto = false cuando el archivo ya viene en mm (STL exportado por el
 // visor 3D): re-detectar unidades multiplicaría x10 una pieza de menos de 10 mm.
 function prepararMalla(filePath, ext, scalePct, unidadesAuto) {
+  mallaConHuecos = false
   const crudo = ext === '.obj'
     ? leerOBJ(fs.readFileSync(filePath, 'utf8'))
     : leerSTL(fs.readFileSync(filePath))
@@ -293,9 +308,10 @@ function prepararMalla(filePath, ext, scalePct, unidadesAuto) {
 
 // 3MF que el motor no pudo leer (versión más nueva de Bambu Studio): se toma su geometría
 function tresMFAMalla(ruta, scalePct) {
-  const { verts, tris, piezas, medidas, rangos } = geometriaDe3MF(ruta)
+  const { verts, tris, piezas, medidas, rangos, simplificado } = geometriaDe3MF(ruta)
   const f = (scalePct || 100) / 100
-  console.log(`[Brumet] 3MF leído a mano: ${piezas} pieza(s), ${tris.length} triángulos`)
+  console.log(`[Brumet] 3MF leído a mano: ${piezas} pieza(s), ${tris.length} triángulos` +
+    (simplificado ? ` (simplificado de ${simplificado.antes} con celdas de ${simplificado.celda} mm)` : ''))
   if (piezas > 1) acomodarPiezas(verts, medidas, rangos)
   return { verts: f === 1 ? verts : verts.map(([x,y,z]) => [x*f, y*f, z*f]), tris,
            medidas: medidas.map(m => m.map(v => v*f)) }
@@ -342,11 +358,22 @@ function mallaAModelXML(verts, tris) {
   <object id="1" p:UUID="00010000-81cb-4c03-9d28-80fed5dfa1dc" type="model">
    <mesh>
     <vertices>`]
-  for (const [x,y,z] of verts) partes.push(`     <vertex x="${x.toFixed(6)}" y="${y.toFixed(6)}" z="${z.toFixed(6)}"/>`)
-  partes.push('    </vertices>\n    <triangles>')
-  for (const [v1,v2,v3] of tris) partes.push(`     <triangle v1="${v1}" v2="${v2}" v3="${v3}"/>`)
-  partes.push('    </triangles>\n   </mesh>\n  </object>\n </resources>\n</model>')
-  return partes.join('\n')
+  // Se arma por bloques de bytes: con millones de triángulos un solo texto pasa el límite de Node
+  const bloques = []
+  let lote = partes
+  const vaciar = () => { bloques.push(Buffer.from(lote.join('\n') + '\n', 'utf8')); lote = [] }
+  for (const [x,y,z] of verts) {
+    lote.push(`     <vertex x="${x.toFixed(6)}" y="${y.toFixed(6)}" z="${z.toFixed(6)}"/>`)
+    if (lote.length >= 200000) vaciar()
+  }
+  lote.push('    </vertices>\n    <triangles>')
+  for (const [v1,v2,v3] of tris) {
+    lote.push(`     <triangle v1="${v1}" v2="${v2}" v3="${v3}"/>`)
+    if (lote.length >= 200000) vaciar()
+  }
+  lote.push('    </triangles>\n   </mesh>\n  </object>\n </resources>\n</model>')
+  vaciar()
+  return Buffer.concat(bloques)
 }
 
 // ── Cama: la A1 mide 256 mm. Un modelo más grande hay que cortarlo en partes ──
@@ -354,6 +381,51 @@ function mallaAModelXML(verts, tris) {
 // filamento y el tiempo son prácticamente los mismos que sumando las partes.
 const CAMA_MM = 256
 const UTIL_MM = 240          // lo que de verdad se aprovecha por parte (márgenes, conectores)
+
+// Una pieza que no cabe se cotiza COMO SE VA A IMPRIMIR: cortada en bloques que sí caben en la
+// cama (con cortar.js, el mismo de la herramienta Cortar del visor: cada corte queda tapado), y
+// cada bloque se lamina en la cama real. Así la cotización incluye las paredes extra de cada
+// corte y nunca queda por debajo de lo que de verdad gasta la impresión (pedido del dueño: que
+// el precio sea confiable; él produce lo que cotizan los empleados).
+function cortarEnBloques(verts, tris, lado) {
+  const THREE = require('three')
+  const { cortarMalla } = require('./cortar.js')
+  const geo = arr => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(arr, 3)); return g }
+  const sopa = new Float32Array(tris.length * 9)
+  tris.forEach(([a, b, c], i) => { sopa.set(verts[a], i * 9); sopa.set(verts[b], i * 9 + 3); sopa.set(verts[c], i * 9 + 6) })
+  let trozos = [sopa]
+  for (let eje = 0; eje < 3; eje++) {
+    const nuevos = []
+    for (const t of trozos) {
+      let lo = Infinity, hi = -Infinity
+      for (let i = eje; i < t.length; i += 3) { if (t[i] < lo) lo = t[i]; if (t[i] > hi) hi = t[i] }
+      const n = Math.ceil((hi - lo) / lado)
+      if (n <= 1) { nuevos.push(t); continue }
+      let resto = t
+      for (let k = 1; k < n && resto; k++) {
+        const r = cortarMalla(THREE, geo(resto), eje, lo + (hi - lo) * k / n)
+        if (r.negativa) nuevos.push(r.negativa)
+        resto = r.positiva
+      }
+      if (resto) nuevos.push(resto)
+    }
+    trozos = nuevos
+  }
+  return trozos
+}
+
+function sopaASTL(t) {
+  const n = t.length / 9
+  const buf = Buffer.alloc(84 + n * 50)
+  buf.writeUInt32LE(n, 80)
+  let off = 84
+  for (let i = 0; i < n; i++) {
+    off += 12
+    for (let k = 0; k < 9; k++) { buf.writeFloatLE(t[i * 9 + k], off); off += 4 }
+    off += 2
+  }
+  return buf
+}
 
 function infoExcede(dimX, dimY, dimZ) {
   if (dimX <= CAMA_MM && dimY <= CAMA_MM && dimZ <= CAMA_MM) return null
@@ -367,7 +439,7 @@ function infoExcede(dimX, dimY, dimZ) {
 // opciones.unidadesAuto = false: el archivo ya viene en mm (STL exportado por el visor 3D)
 function prepararArchivo(filePath, scalePct, callback, printer, opciones) {
   const ext = path.extname(filePath).toLowerCase()
-  const { leerGeometria = false, unidadesAuto = true } = opciones || {}
+  const { leerGeometria = false, unidadesAuto = true, enBloque = false } = opciones || {}
 
   if (ext === '.3mf' && !leerGeometria) {
     // Primero tal cual: así se respetan sus colores, placas y ajustes
@@ -389,13 +461,24 @@ function prepararArchivo(filePath, scalePct, callback, printer, opciones) {
     const piezas = malla.medidas || [[dimX, dimY, dimZ]]
     const excede = piezas.map(([x, y, z]) => infoExcede(x, y, z)).filter(Boolean)
       .reduce((peor, e) => (!peor || e.partes > peor.partes ? e : peor), null)
+    // No cabe en la cama: se corta en bloques que sí caben y se lamina cada uno (ver cortarEnBloques)
+    if (excede && !enBloque) {
+      const bloques = cortarEnBloques(malla.verts, malla.tris, UTIL_MM)
+      const archivos = bloques.map((t, k) => {
+        const f = path.join(TEMP_DIR, `bloque_${k + 1}.stl`)
+        fs.writeFileSync(f, sopaASTL(t))
+        return f
+      })
+      console.log(`[Brumet] ${Math.round(dimX)}x${Math.round(dimY)}x${Math.round(dimZ)} mm: no cabe, se cotiza cortado en ${archivos.length} bloques`)
+      return callback(null, null, excede, archivos)
+    }
     const noCabeJunto = dimX > CAMA_MM || dimY > CAMA_MM || dimZ > CAMA_MM
-    zip.updateFile('3D/Objects/object_1.model', Buffer.from(mallaAModelXML(malla.verts, malla.tris), 'utf8'))
+    zip.updateFile('3D/Objects/object_1.model', mallaAModelXML(malla.verts, malla.tris))
 
     // Cama virtual si no cabe (solo para cotizar)
     let cama = CAMA_MM
     if (noCabeJunto) {
-      cama = Math.ceil((Math.max(dimX, dimY) + 40) / 50) * 50
+      cama = Math.max(CAMA_MM, Math.ceil((Math.max(dimX, dimY) + 40) / 50) * 50)
       const alto = Math.max(CAMA_MM, Math.ceil((dimZ + 20) / 50) * 50)
       const cfgEntry = zip.getEntry('Metadata/project_settings.config')
       const cfgProyecto = JSON.parse(cfgEntry.getData().toString('utf8'))
@@ -457,6 +540,10 @@ function explicarErrorBambu(result, filePath) {
   if (/layer|nothing to print|no extrusion|empty/i.test(msg))
     return 'El motor no generó capas para imprimir: la pieza es demasiado pequeña o delgada. Agrándala con "Ver en 3D" → Escalar y vuelve a cotizar.' + detalle
 
+  // Malla con huecos grandes que no se pudieron cerrar: es el archivo, no la app (aviso, no falla)
+  if (!es3MF && mallaConHuecos)
+    return 'El modelo tiene huecos grandes en su superficie (la malla está abierta) y así no se puede laminar. Ábrelo en Bambu Studio, clic derecho → "Reparar modelo", expórtalo como STL y vuelve a cotizar; si sigue igual, pide el archivo de nuevo.' + detalle
+
   return 'El motor de laminado no pudo procesar este modelo.' + detalle
 }
 
@@ -517,8 +604,10 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
     const yaLaminado = resultadoDeLaminado(filePath)
     if (yaLaminado) return callback(null, yaLaminado)
   }
-  prepararArchivo(filePath, scalePct, (err, archivoFinal, excede) => {
+  prepararArchivo(filePath, scalePct, (err, archivoFinal, excede, grande) => {
     if (err) return callback(err)
+    if (grande) return laminarPartes(grande, (e, r) => e ? callback(e) : callback(null, { ...r, excede, enBloques: grande.length,
+      desdeGeometria: es3MF }), printer, { enBloque: true })
 
     const resultPath = path.join(OUTPUT_DIR, 'result.json')
     if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath)
@@ -605,7 +694,7 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
 // Modelo cortado en el visor: una pieza (o grupo de piezas) por cama. Se
 // laminan una tras otra y se suman como un resultado de varias camas.
 // Las partes salen del visor ya en mm: no se re-detectan unidades.
-function laminarPartes(archivos, callback, printer) {
+function laminarPartes(archivos, callback, printer, opciones) {
   const camas = []
   const siguiente = (k) => {
     if (k >= archivos.length) {
@@ -617,14 +706,15 @@ function laminarPartes(archivos, callback, printer) {
         tiempo:    formatTiempo(totalHoras * 3600),
         horas:     totalHoras.toFixed(2),
         gramos:    totalGramos.toFixed(2),
-        excede:    null
+        excede:    null,
+        partes:    archivos.length     // piezas que hay que montar (precio de montaje por parte)
       })
     }
     laminarConBambu(archivos[k], 100, (err, r) => {
       if (err) return callback(err === 'CANCELADO' ? err : `Cama ${k + 1} de ${archivos.length}: ${err}`)
       for (const c of r.camas) camas.push({ ...c, cama: camas.length + 1 })
       siguiente(k + 1)
-    }, printer, { unidadesAuto: false })
+    }, printer, { unidadesAuto: false, ...opciones })
   }
   siguiente(0)
 }
