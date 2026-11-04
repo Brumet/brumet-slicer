@@ -120,7 +120,7 @@ html,body{width:100%;height:100vh;background:#f0f1f5;font-family:-apple-system,B
   <div id="main">
     <div id="vp">
       <div id="badge">ORBITAR CÁMARA</div>
-      <div id="alert">⚠ El modelo supera el área de impresión (256×256×256 mm)</div>
+      <div id="alert">⚠ No cabe en la cama (25,6 cm por lado). Usa <b>Cortar</b> para partirlo, o <b>Escalar</b> si el cliente lo quiere más pequeño.</div>
       <div id="loading"><span class="sp"></span>Cargando modelo...</div>
       <div id="hint">Sin selección: orbita · Click modelo: seleccionar · Scroll: zoom · Shift+drag: paneo</div>
     </div>
@@ -409,7 +409,9 @@ function loadSTL(filePath) {
         geo = parse3MF(filePath)
       } else {
         // STL por defecto
-        const buf = fs.readFileSync(filePath).buffer
+        const _b = fs.readFileSync(filePath)
+      // Copia exacta: en archivos chicos (<4 KB) .buffer es el bloque compartido de Node, con basura alrededor
+      const buf = _b.buffer.slice(_b.byteOffset, _b.byteOffset + _b.byteLength)
         geo = parseSTL(buf)
       }
       geo.computeBoundingBox()
@@ -458,7 +460,8 @@ function loadSTL(filePath) {
       // Auto-scale to fit bed
       const maxDim = Math.max(baseDims.x, baseDims.y, baseDims.z)
       let autoScale = 100
-      if (maxDim > BED * 0.9) autoScale = Math.floor((BED * 0.88 / maxDim) * 100)
+      // Siempre a tamaño real: encogerlo solo hacía cotizar una pieza más chica
+      // que la del cliente. Si no cabe, sale el aviso para cortarlo.
 
       Object.assign(T, { px:0, py:0, pz:0, rx:0, ry:0, rz:0, sx:autoScale, sy:autoScale, sz:autoScale })
       modelSelected = false
@@ -924,7 +927,8 @@ function centerModel() { T.px = 0; T.pz = 0; T.py = 0; syncUI(); applyTransform(
 function resetAll() {
   const maxDim = Math.max(baseDims.x || 100, baseDims.y || 100, baseDims.z || 100)
   let autoScale = 100
-  if (maxDim > BED * 0.9) autoScale = Math.floor((BED * 0.88 / maxDim) * 100)
+  // Siempre a tamaño real: encogerlo solo hacía cotizar una pieza más chica
+      // que la del cliente. Si no cabe, sale el aviso para cortarlo.
   Object.assign(T, { px:0, py:0, pz:0, rx:0, ry:0, rz:0, sx:autoScale, sy:autoScale, sz:autoScale })
   syncUI(); applyTransform()
 }

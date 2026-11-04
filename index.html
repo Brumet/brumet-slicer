@@ -842,7 +842,9 @@ function generateThumbnail(filePath) {
 
     } else {
       // STL
-      const buf = fsNode.readFileSync(filePath).buffer
+      const _b = fsNode.readFileSync(filePath)
+      // Copia exacta: en archivos chicos (<4 KB) .buffer es el bloque compartido de Node, con basura alrededor
+      const buf = _b.buffer.slice(_b.byteOffset, _b.byteOffset + _b.byteLength)
       const dv = new DataView(buf)
       const faceCount = dv.getUint32(80,true)
       const isBinary = (80+4+faceCount*50) === buf.byteLength
