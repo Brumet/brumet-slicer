@@ -1,6 +1,6 @@
 {
   "name": "brumet-slicer",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Cotizador de impresion 3D Brumet",
   "main": "main.js",
   "scripts": {
@@ -36,6 +36,7 @@
       "viewer.html",
       "slicer-bambu.js",
       "leer-gcode.js",
+      "leer-3mf.js",
       "licenses.json",
       "webhook.json",
       "assets/**",
