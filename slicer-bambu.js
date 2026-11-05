@@ -749,7 +749,14 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
 const ENTERA_HASTA_MM = 600
 function cotizarNoCabe(filePath, scalePct, callback, printer, opciones, excede, bloques, es3MF) {
   laminarPartes(bloques, (e, rb) => {
-    if (e) return callback(e)
+    if (e === 'CANCELADO') return callback(e)
+    if (e) {
+      // Un bloque no laminó (pasa con cortes muy delgados): si la pieza no es gigante, se cotiza entera
+      if (Math.max(excede.dimX, excede.dimY, excede.dimZ) > ENTERA_HASTA_MM) return callback(e)
+      console.log(`[Brumet] Un bloque falló (${String(e).slice(0, 80)}); se cotiza la pieza entera`)
+      return laminarConBambu(filePath, scalePct, (e2, rv) => e2 ? callback(e2) : callback(null, { ...rv, excede, desdeGeometria: es3MF }),
+        printer, { ...opciones, enBloque: true, leerGeometria: es3MF || (opciones && opciones.leerGeometria) })
+    }
     const porBloques = { ...rb, excede, enBloques: bloques.length, desdeGeometria: es3MF, multicolorSinPurga: es3MF && ultimoMulticolor }
     if (Math.max(excede.dimX, excede.dimY) > ENTERA_HASTA_MM || excede.dimZ > ENTERA_HASTA_MM) return callback(null, porBloques)
     laminarConBambu(filePath, scalePct, (e2, rv) => {
