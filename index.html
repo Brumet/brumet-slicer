@@ -943,7 +943,8 @@ async function procesar() {
     }
     const resultado=await ipcRenderer.invoke('slice-model',fileToSlice,extraData)
     const horas=parseFloat(resultado.horas), gramos=parseFloat(resultado.gramos)
-    const partes = resultado.excede ? resultado.excede.partes : 1
+    // Partes que hay que montar: las reales si se cortó (visor o bloques), si no la estimación por tamaño
+    const partes = Math.max(1, resultado.enBloques || resultado.partes || (resultado.excede ? resultado.excede.partes : 1))
     const {total,desglose}=calcularPrecio(horas,gramos,partes)
 
     // ── Cantidad y descuento por mayoreo ──
@@ -959,6 +960,7 @@ async function procesar() {
     document.getElementById('resPriceLabel').textContent = cantidad > 1
       ? `Total por ${cantidad} piezas · pesos colombianos`
       : 'Valor estimado en pesos colombianos'
+    if (resultado.multicolorSinPurga) document.getElementById('resPriceLabel').textContent = '⚠️ POR VERIFICAR con Brumet (multicolor)'
     document.getElementById('resMaterialBadge').textContent=selectedFilNombre+' · '+selectedPrinter
 
     // ── Desglose por cantidad ──
@@ -1018,7 +1020,9 @@ async function procesar() {
       priceBox.parentNode.insertBefore(avisoEl, priceBox)
     }
     const avisos = []
-    if (resultado.excede) avisos.push(`⚠️ No cabe en la impresora: se imprime en unas ${resultado.excede.partes} partes (ya incluido en el precio). <a href="#" onclick="abrirAvisoCorte(lastResult.excede);return false">Ver cómo cortarlo</a>`)
+    if (resultado.multicolorSinPurga) avisos.push('🛑 <b>Proyecto multicolor: precio por verificar.</b> Este 3MF no se pudo laminar con sus colores, así que la cotización NO incluye el filamento que se gasta al cambiar de color (puede ser mucho). Confirma el precio con Brumet antes de cobrarlo.')
+    if (resultado.excede) avisos.push(`⚠️ No cabe en la impresora: se cotizó cortado en ${resultado.enBloques || resultado.excede.partes} partes, como se va a imprimir (las paredes de cada corte y el montaje ya están en el precio). <a href="#" onclick="abrirAvisoCorte(lastResult.excede);return false">Ver cómo cortarlo</a>`)
+    if (resultado.desdeLaminado) avisos.push('ℹ️ Este archivo ya venía laminado en Bambu Studio: se cotizó con el tiempo y los gramos que trae (los de quien lo laminó, con su perfil).')
     if (resultado.desdeGeometria) avisos.push('ℹ️ Este 3MF se hizo con una versión más nueva de Bambu Studio: se cotizó con su forma y el perfil de la app (sus colores y ajustes propios no se tomaron en cuenta).')
     avisoEl.innerHTML = avisos.join('<br>')
     avisoEl.style.display = avisos.length ? 'block' : 'none'
@@ -1040,6 +1044,7 @@ async function procesar() {
       precioUnitario: total,
       descuentoPct: descPct,
       precio:      totalFinal,
+      porVerificar: !!resultado.multicolorSinPurga,
       archivoPath: fileToSlice,
       desglose,
       thumbnail,

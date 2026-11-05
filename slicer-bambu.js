@@ -5,6 +5,8 @@ const AdmZip = require('adm-zip')
 const { geometriaDe3MF } = require('./leer-3mf.js')
 
 const BAMBU_EXE = (() => {
+  // Pruebas: otro motor (BRUMET_MOTOR=ruta al bambu-studio.exe)
+  if (process.env.BRUMET_MOTOR && fs.existsSync(process.env.BRUMET_MOTOR)) return process.env.BRUMET_MOTOR
   // Dev: el exe está junto al proyecto
   const devPath = path.join(__dirname, 'BambuStudio', 'bambu-studio.exe')
   if (fs.existsSync(devPath)) return devPath
@@ -67,7 +69,10 @@ function calcularEscala(bboxMax) {
 //    "triangle soup" o de escaneos 3D, que generan miles de "open edges").
 // 2) Detecta los bordes abiertos restantes (huecos reales en la superficie)
 //    y los tapa triangulando en abanico desde el centroide del hueco.
-function repararMalla(verts, tris) {
+let mallaConHuecos = false   // la última malla quedó con huecos que no se pudieron cerrar
+let ultimoMulticolor = false  // el último 3MF leído a mano era multicolor
+let mallaConParedes = false  // la última malla trae caras internas duplicadas
+function repararMalla(verts, tris, quitarParedes) {
   const EPS = 1e-4
   const map = new Map()
   const newVerts = []
@@ -84,17 +89,32 @@ function repararMalla(verts, tris) {
     remap[i] = idx
   }
 
-  // Quitar triángulos degenerados (área 0) y duplicados
-  const seen = new Set()
-  let cleanTris = []
+  // Quitar triángulos degenerados (área 0) y duplicados. Dos caras iguales pero mirando a
+  // lados opuestos son una "pared interna" de grosor cero (pasa al unir piezas mal): se
+  // quitan las dos, porque dejar una sola confunde al motor ("Failed slicing").
+  const grupos = new Map()   // vértices ordenados → [{ tri, paridad }]
   for (const [a, b, c] of tris) {
     const A = remap[a], B = remap[b], C = remap[c]
     if (A === B || B === C || A === C) continue
+    const orden = [A, B, C]
+    const min = Math.min(A, B, C), i = orden.indexOf(min)
+    const rot = [orden[i], orden[(i + 1) % 3], orden[(i + 2) % 3]]   // misma orientación → misma rotación
     const key = [A, B, C].slice().sort((x, y) => x - y).join('_')
-    if (seen.has(key)) continue
-    seen.add(key)
-    cleanTris.push([A, B, C])
+    const sentido = rot[1] < rot[2] ? 1 : -1
+    if (!grupos.has(key)) grupos.set(key, { tri: [A, B, C], pos: 0, neg: 0 })
+    const g = grupos.get(key)
+    if (sentido > 0) g.pos++; else g.neg++
   }
+  let cleanTris = []
+  let paredes = 0
+  for (const g of grupos.values()) {
+    // Por defecto la malla queda como la imprime Bambu Studio (una de cada par). Quitar las
+    // dos solo si el motor no pudo laminarla así: quitarlas antes daba hasta 11 % menos material.
+    if (g.pos > 0 && g.neg > 0) { paredes++; if (quitarParedes) continue }
+    cleanTris.push(g.tri)
+  }
+  if (paredes) mallaConParedes = true
+  if (paredes && quitarParedes) console.log(`[Brumet] ${paredes} cara(s) interna(s) duplicada(s) quitada(s)`)
 
   const vertsAntes = verts.length, trisAntes = tris.length
   console.log(`[Brumet] Malla: ${vertsAntes} vertices / ${trisAntes} triangulos -> ${newVerts.length} vertices soldados / ${cleanTris.length} triangulos validos`)
@@ -151,6 +171,7 @@ function repararMalla(verts, tris) {
       huecosRellenados++
     }
     console.log(`[Brumet] ${huecosRellenados} hueco(s) rellenado(s), ${huecosOmitidos} omitido(s) (demasiado grandes/irregulares)`)
+    if (huecosOmitidos > 0) mallaConHuecos = true
   }
 
   return { verts: newVerts, tris: cleanTris }
@@ -259,7 +280,9 @@ function compactarMalla(verts, tris) {
 // STL / OBJ: lee, sanea, escala y repara.
 // unidadesAuto = false cuando el archivo ya viene en mm (STL exportado por el
 // visor 3D): re-detectar unidades multiplicaría x10 una pieza de menos de 10 mm.
-function prepararMalla(filePath, ext, scalePct, unidadesAuto) {
+function prepararMalla(filePath, ext, scalePct, unidadesAuto, quitarParedes) {
+  mallaConHuecos = false
+  mallaConParedes = false
   const crudo = ext === '.obj'
     ? leerOBJ(fs.readFileSync(filePath, 'utf8'))
     : leerSTL(fs.readFileSync(filePath))
@@ -279,7 +302,7 @@ function prepararMalla(filePath, ext, scalePct, unidadesAuto) {
     : 1) * ((scalePct || 100) / 100)
 
   const escalados = crudo.verts.map(v => [v[0]*escala, v[1]*escala, v[2]*escala])
-  const reparado = repararMalla(escalados, validos)
+  const reparado = repararMalla(escalados, validos, quitarParedes)
   const malla = compactarMalla(reparado.verts, reparado.tris)
   if (malla.tris.length === 0)
     throw errorUsuario('El modelo no tiene volumen imprimible (todas sus caras son planas o están repetidas). Revisa el archivo en el programa donde se diseñó.')
@@ -293,9 +316,11 @@ function prepararMalla(filePath, ext, scalePct, unidadesAuto) {
 
 // 3MF que el motor no pudo leer (versión más nueva de Bambu Studio): se toma su geometría
 function tresMFAMalla(ruta, scalePct) {
-  const { verts, tris, piezas, medidas, rangos } = geometriaDe3MF(ruta)
+  const { verts, tris, piezas, medidas, rangos, simplificado, multicolor } = geometriaDe3MF(ruta)
+  ultimoMulticolor = !!multicolor
   const f = (scalePct || 100) / 100
-  console.log(`[Brumet] 3MF leído a mano: ${piezas} pieza(s), ${tris.length} triángulos`)
+  console.log(`[Brumet] 3MF leído a mano: ${piezas} pieza(s), ${tris.length} triángulos` +
+    (simplificado ? ` (simplificado de ${simplificado.antes} con celdas de ${simplificado.celda} mm)` : ''))
   if (piezas > 1) acomodarPiezas(verts, medidas, rangos)
   return { verts: f === 1 ? verts : verts.map(([x,y,z]) => [x*f, y*f, z*f]), tris,
            medidas: medidas.map(m => m.map(v => v*f)) }
@@ -342,11 +367,22 @@ function mallaAModelXML(verts, tris) {
   <object id="1" p:UUID="00010000-81cb-4c03-9d28-80fed5dfa1dc" type="model">
    <mesh>
     <vertices>`]
-  for (const [x,y,z] of verts) partes.push(`     <vertex x="${x.toFixed(6)}" y="${y.toFixed(6)}" z="${z.toFixed(6)}"/>`)
-  partes.push('    </vertices>\n    <triangles>')
-  for (const [v1,v2,v3] of tris) partes.push(`     <triangle v1="${v1}" v2="${v2}" v3="${v3}"/>`)
-  partes.push('    </triangles>\n   </mesh>\n  </object>\n </resources>\n</model>')
-  return partes.join('\n')
+  // Se arma por bloques de bytes: con millones de triángulos un solo texto pasa el límite de Node
+  const bloques = []
+  let lote = partes
+  const vaciar = () => { bloques.push(Buffer.from(lote.join('\n') + '\n', 'utf8')); lote = [] }
+  for (const [x,y,z] of verts) {
+    lote.push(`     <vertex x="${x.toFixed(6)}" y="${y.toFixed(6)}" z="${z.toFixed(6)}"/>`)
+    if (lote.length >= 200000) vaciar()
+  }
+  lote.push('    </vertices>\n    <triangles>')
+  for (const [v1,v2,v3] of tris) {
+    lote.push(`     <triangle v1="${v1}" v2="${v2}" v3="${v3}"/>`)
+    if (lote.length >= 200000) vaciar()
+  }
+  lote.push('    </triangles>\n   </mesh>\n  </object>\n </resources>\n</model>')
+  vaciar()
+  return Buffer.concat(bloques)
 }
 
 // ── Cama: la A1 mide 256 mm. Un modelo más grande hay que cortarlo en partes ──
@@ -354,6 +390,51 @@ function mallaAModelXML(verts, tris) {
 // filamento y el tiempo son prácticamente los mismos que sumando las partes.
 const CAMA_MM = 256
 const UTIL_MM = 240          // lo que de verdad se aprovecha por parte (márgenes, conectores)
+
+// Una pieza que no cabe se cotiza COMO SE VA A IMPRIMIR: cortada en bloques que sí caben en la
+// cama (con cortar.js, el mismo de la herramienta Cortar del visor: cada corte queda tapado), y
+// cada bloque se lamina en la cama real. Así la cotización incluye las paredes extra de cada
+// corte y nunca queda por debajo de lo que de verdad gasta la impresión (pedido del dueño: que
+// el precio sea confiable; él produce lo que cotizan los empleados).
+function cortarEnBloques(verts, tris, lado) {
+  const THREE = require('three')
+  const { cortarMalla } = require('./cortar.js')
+  const geo = arr => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(arr, 3)); return g }
+  const sopa = new Float32Array(tris.length * 9)
+  tris.forEach(([a, b, c], i) => { sopa.set(verts[a], i * 9); sopa.set(verts[b], i * 9 + 3); sopa.set(verts[c], i * 9 + 6) })
+  let trozos = [sopa]
+  for (let eje = 0; eje < 3; eje++) {
+    const nuevos = []
+    for (const t of trozos) {
+      let lo = Infinity, hi = -Infinity
+      for (let i = eje; i < t.length; i += 3) { if (t[i] < lo) lo = t[i]; if (t[i] > hi) hi = t[i] }
+      const n = Math.ceil((hi - lo) / lado)
+      if (n <= 1) { nuevos.push(t); continue }
+      let resto = t
+      for (let k = 1; k < n && resto; k++) {
+        const r = cortarMalla(THREE, geo(resto), eje, lo + (hi - lo) * k / n)
+        if (r.negativa) nuevos.push(r.negativa)
+        resto = r.positiva
+      }
+      if (resto) nuevos.push(resto)
+    }
+    trozos = nuevos
+  }
+  return trozos
+}
+
+function sopaASTL(t) {
+  const n = t.length / 9
+  const buf = Buffer.alloc(84 + n * 50)
+  buf.writeUInt32LE(n, 80)
+  let off = 84
+  for (let i = 0; i < n; i++) {
+    off += 12
+    for (let k = 0; k < 9; k++) { buf.writeFloatLE(t[i * 9 + k], off); off += 4 }
+    off += 2
+  }
+  return buf
+}
 
 function infoExcede(dimX, dimY, dimZ) {
   if (dimX <= CAMA_MM && dimY <= CAMA_MM && dimZ <= CAMA_MM) return null
@@ -367,10 +448,11 @@ function infoExcede(dimX, dimY, dimZ) {
 // opciones.unidadesAuto = false: el archivo ya viene en mm (STL exportado por el visor 3D)
 function prepararArchivo(filePath, scalePct, callback, printer, opciones) {
   const ext = path.extname(filePath).toLowerCase()
-  const { leerGeometria = false, unidadesAuto = true } = opciones || {}
+  const { leerGeometria = false, unidadesAuto = true, enBloque = false, quitarParedes = false } = opciones || {}
 
   if (ext === '.3mf' && !leerGeometria) {
-    // Primero tal cual: así se respetan sus colores, placas y ajustes
+    // El proyecto con sus piezas, placas, filamentos y colores, pero con el perfil de Brumet
+    // (Gemelas, impresora de la plantilla): es con lo que se va a imprimir
     callback(null, filePath, null)
     return
   }
@@ -381,7 +463,7 @@ function prepararArchivo(filePath, scalePct, callback, printer, opciones) {
   try {
     const zip = new AdmZip(getPlantilla(printer))
     const malla = ext === '.3mf' ? tresMFAMalla(filePath, scalePct)
-      : prepararMalla(filePath, ext, scalePct, unidadesAuto)
+      : prepararMalla(filePath, ext, scalePct, unidadesAuto, quitarParedes)
     const bbox = bboxDe(malla.verts)
     const dimX = bbox.maxX-bbox.minX, dimY = bbox.maxY-bbox.minY, dimZ = bbox.maxZ-bbox.minZ
     // Un 3MF puede traer varias piezas repartidas en varias placas: lo que debe caber en
@@ -389,13 +471,24 @@ function prepararArchivo(filePath, scalePct, callback, printer, opciones) {
     const piezas = malla.medidas || [[dimX, dimY, dimZ]]
     const excede = piezas.map(([x, y, z]) => infoExcede(x, y, z)).filter(Boolean)
       .reduce((peor, e) => (!peor || e.partes > peor.partes ? e : peor), null)
+    // No cabe en la cama: se corta en bloques que sí caben y se lamina cada uno (ver cortarEnBloques)
+    if (excede && !enBloque) {
+      const bloques = cortarEnBloques(malla.verts, malla.tris, UTIL_MM)
+      const archivos = bloques.map((t, k) => {
+        const f = path.join(TEMP_DIR, `bloque_${k + 1}.stl`)
+        fs.writeFileSync(f, sopaASTL(t))
+        return f
+      })
+      console.log(`[Brumet] ${Math.round(dimX)}x${Math.round(dimY)}x${Math.round(dimZ)} mm: no cabe, se cotiza cortado en ${archivos.length} bloques`)
+      return callback(null, null, excede, archivos)
+    }
     const noCabeJunto = dimX > CAMA_MM || dimY > CAMA_MM || dimZ > CAMA_MM
-    zip.updateFile('3D/Objects/object_1.model', Buffer.from(mallaAModelXML(malla.verts, malla.tris), 'utf8'))
+    zip.updateFile('3D/Objects/object_1.model', mallaAModelXML(malla.verts, malla.tris))
 
     // Cama virtual si no cabe (solo para cotizar)
     let cama = CAMA_MM
     if (noCabeJunto) {
-      cama = Math.ceil((Math.max(dimX, dimY) + 40) / 50) * 50
+      cama = Math.max(CAMA_MM, Math.ceil((Math.max(dimX, dimY) + 40) / 50) * 50)
       const alto = Math.max(CAMA_MM, Math.ceil((dimZ + 20) / 50) * 50)
       const cfgEntry = zip.getEntry('Metadata/project_settings.config')
       const cfgProyecto = JSON.parse(cfgEntry.getData().toString('utf8'))
@@ -457,6 +550,10 @@ function explicarErrorBambu(result, filePath) {
   if (/layer|nothing to print|no extrusion|empty/i.test(msg))
     return 'El motor no generó capas para imprimir: la pieza es demasiado pequeña o delgada. Agrándala con "Ver en 3D" → Escalar y vuelve a cotizar.' + detalle
 
+  // Malla con huecos grandes que no se pudieron cerrar: es el archivo, no la app (aviso, no falla)
+  if (!es3MF && mallaConHuecos)
+    return 'El modelo tiene huecos grandes en su superficie (la malla está abierta) y así no se puede laminar. Ábrelo en Bambu Studio, clic derecho → "Reparar modelo", expórtalo como STL y vuelve a cotizar; si sigue igual, pide el archivo de nuevo.' + detalle
+
   return 'El motor de laminado no pudo procesar este modelo.' + detalle
 }
 
@@ -479,13 +576,49 @@ function cancelarLaminado() {
 // Un 3MF se intenta primero tal cual (respeta colores y placas). Si el motor no lo
 // entiende o se queda pegado, se cotiza con su geometría: así ninguna actualización
 // de Bambu Studio vuelve a dejar a la app sin poder cotizar.
-const TIMEOUT_3MF_DIRECTO_MS = 3 * 60 * 1000
+const TIMEOUT_3MF_DIRECTO_MS = 10 * 60 * 1000   // si el PC está ocupado tarda más; el plan B pierde colores
+
+// Un .gcode.3mf ya viene laminado (Bambu Studio → "Exportar archivo laminado"): no trae la forma del
+// modelo sino el G-code, y el tiempo y los gramos de cada placa en Metadata/slice_info.config. Se toman
+// de ahí: son exactamente los de quien lo laminó. Devuelve null si el archivo no es de ese tipo.
+function resultadoDeLaminado(filePath) {
+  // Solo los .gcode.3mf: un proyecto .3mf puede traer un laminado viejo de una sola placa o de otra impresora
+  if (!/\.gcode\.3mf$/i.test(filePath)) return null
+  let zip
+  try { zip = new AdmZip(filePath) } catch(e) { return null }
+  const nombres = zip.getEntries().map(e => e.entryName)
+  if (!nombres.some(n => /^Metadata\/plate_\d+\.gcode$/i.test(n))) return null
+  const info = zip.getEntry('Metadata/slice_info.config')
+  if (!info) return null
+  const xml = info.getData().toString('utf8')
+  const camas = []
+  const rePlaca = /<plate>([\s\S]*?)<\/plate>/g
+  let m
+  while ((m = rePlaca.exec(xml)) !== null) {
+    const placa = m[1]
+    const dato = k => { const r = placa.match(new RegExp('key="' + k + '"\\s+value="([^"]*)"')); return r ? parseFloat(r[1]) : NaN }
+    const segs = dato('prediction'), gramos = dato('weight')
+    if (!(segs > 0) || !(gramos >= 0)) continue
+    camas.push({ cama: camas.length + 1, tiempo: formatTiempo(segs), horas: (segs / 3600).toFixed(2), gramos: gramos.toFixed(2) })
+  }
+  if (!camas.length) return null
+  const totalGramos = camas.reduce((s, c) => s + parseFloat(c.gramos), 0)
+  const totalHoras  = camas.reduce((s, c) => s + parseFloat(c.horas), 0)
+  console.log(`[Brumet] Archivo ya laminado: ${camas.length} placa(s), ${totalGramos.toFixed(1)} g`)
+  return { camas, multiCama: camas.length > 1, tiempo: camas[0].tiempo, horas: totalHoras.toFixed(2),
+           gramos: totalGramos.toFixed(2), excede: null, desdeLaminado: true }
+}
 
 function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
   const es3MF = path.extname(filePath).toLowerCase() === '.3mf'
   const leerGeometria = !!(opciones && opciones.leerGeometria)
-  prepararArchivo(filePath, scalePct, (err, archivoFinal, excede) => {
+  if (es3MF && !leerGeometria && !(scalePct && scalePct !== 100)) {
+    const yaLaminado = resultadoDeLaminado(filePath)
+    if (yaLaminado) return callback(null, yaLaminado)
+  }
+  prepararArchivo(filePath, scalePct, (err, archivoFinal, excede, grande) => {
     if (err) return callback(err)
+    if (grande) return cotizarNoCabe(filePath, scalePct, callback, printer, opciones, excede, grande, es3MF)
 
     const resultPath = path.join(OUTPUT_DIR, 'result.json')
     if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath)
@@ -495,13 +628,18 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
     const terminar = (e, r) => { if (!terminado) { terminado = true; callback(e, r) } }
     const directo3MF = es3MF && !leerGeometria
     const plan_b = (motivo) => {
+      if (opciones && opciones.placa) return terminar(motivo)   // una placa sola: decide laminarPorPlacas
       console.log(`[Brumet] El motor no pudo con el 3MF (${motivo}); se cotiza con su geometría`)
       terminado = true
       laminarConBambu(filePath, scalePct, callback, printer, { ...opciones, leerGeometria: true })
     }
 
     cancelado = false
-    const proc = spawn(BAMBU_EXE, ['--slice', '1', '--outputdir', OUTPUT_DIR, archivoFinal])
+    // Un proyecto 3MF se lamina con TODAS sus placas (0); un modelo suelto va en la placa 1
+    const placa = String((opciones && opciones.placa) || (directo3MF ? 0 : 1))
+    const ajustes = directo3MF ? ajustesBrumet(filePath, printer) : []
+    try { fs.unlinkSync(path.join(OUTPUT_DIR, 'laminado_brumet.3mf')) } catch(e) {}
+    const proc = spawn(BAMBU_EXE, ['--slice', placa, ...ajustes, '--outputdir', OUTPUT_DIR, '--export-3mf', 'laminado_brumet.3mf', archivoFinal])
     procActual = proc
     let stderr = ''
     proc.stdout.on('data', () => {})           // drenar stdout para evitar bloqueo en Windows
@@ -526,20 +664,35 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
       try {
         const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'))
         if (result.return_code !== 0) {
+          const placaVacia = /plate is empty|no object fully inside/i.test(result.error_string || '')
+          if (directo3MF && opciones && opciones.placa) return terminar(placaVacia ? null : (result.error_string || 'falló'), placaVacia ? { vacia: true } : undefined)
+          // Proyecto con alguna placa vacía: se lamina placa por placa y se suman
+          if (directo3MF && placaVacia) { terminado = true; return laminarPorPlacas(filePath, scalePct, callback, printer, opciones) }
           // Pasa con los 3MF de versiones nuevas de Bambu Studio ("Unsupported 3MF version")
           if (directo3MF) return plan_b(result.error_string || `código ${result.return_code}`)
+          // Caras internas duplicadas: se reintenta quitándolas (la lámpara de 50 cm solo así lamina)
+          if (!es3MF && mallaConParedes && !(opciones && opciones.quitarParedes)) {
+            console.log('[Brumet] El motor no pudo; se reintenta quitando las caras internas duplicadas')
+            terminado = true
+            return laminarConBambu(filePath, scalePct, callback, printer, { ...opciones, quitarParedes: true })
+          }
           return terminar(explicarErrorBambu(result, filePath))
         }
 
         const plates = result.sliced_plates || []
+        const info = datosDelLaminado(path.join(OUTPUT_DIR, 'laminado_brumet.3mf'))
         if (plates.length === 0) return terminar('No se encontraron camas en el resultado')
 
         // Procesar todas las camas
         const camasData = plates.map((plate, idx) => {
           // Campos opcionales con valor por defecto: si una versión futura del
           // motor omite alguno, la cotización no revienta
-          const gramos = (plate.filaments || []).reduce((s, f) => s + (Number(f.total_used_g) || 0), 0)
-          const segs   = Number(plate.main_predication) || 0
+          // Siempre lo MAYOR de lo que reporta el motor (lo que muestra Bambu Studio): el tiempo
+          // "principal" no cuenta los cambios de color (multicolor: 7,7 h en vez de 12,4 h) y el peso
+          // del resumen incluye la purga
+          const extra  = info[plate.id] || info[idx + 1] || {}
+          const gramos = Math.max((plate.filaments || []).reduce((s, f) => s + (Number(f.total_used_g) || 0), 0), extra.gramos || 0)
+          const segs   = Math.max(Number(plate.main_predication) || 0, Number(plate.total_predication) || 0, extra.segs || 0)
           const horas  = segs / 3600
           return {
             cama:   idx + 1,
@@ -552,6 +705,25 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
         const totalGramos = camasData.reduce((s, c) => s + parseFloat(c.gramos), 0)
         const totalHoras  = camasData.reduce((s, c) => s + parseFloat(c.horas), 0)
 
+        // El motor a veces ignora la pintura de colores (mismo archivo: 136 g en un color o 201 g en
+        // dos). Si el proyecto está pintado y salió de un solo color, se repite (hasta 3) y vale lo mayor.
+        const coloresUsados = new Set()
+        for (const p of plates) for (const f of (p.filaments || [])) if ((Number(f.total_used_g) || 0) > 0.01) coloresUsados.add(f.id)
+        const intento = (opciones && opciones.intento) || 1
+        const pintadoUnColor = directo3MF && !(opciones && opciones.placa) && coloresUsados.size < 2 && esPintado(filePath)
+        if (pintadoUnColor && intento < 3) {
+          console.log(`[Brumet] Proyecto pintado a colores pero salió de un color: se repite (intento ${intento + 1})`)
+          terminado = true
+          const este = { camas: camasData, gramos: totalGramos, horas: totalHoras }
+          return laminarConBambu(filePath, scalePct, (e2, r2) => {
+            if (e2 || !r2 || parseFloat(r2.gramos) < este.gramos) {
+              return callback(null, { camas: camasData, multiCama: camasData.length > 1, tiempo: formatTiempo(totalHoras * 3600),
+                horas: totalHoras.toFixed(2), gramos: totalGramos.toFixed(2), excede, desdeGeometria: false, multicolorSinPurga: true })
+            }
+            callback(null, r2)
+          }, printer, { ...opciones, intento: intento + 1 })
+        }
+
         terminar(null, {
           camas:      camasData,
           multiCama:  camasData.length > 1,
@@ -560,7 +732,9 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
           horas:      totalHoras.toFixed(2),
           gramos:     totalGramos.toFixed(2),
           excede,                                    // null o {dimX, dimY, dimZ, cama, partes}
-          desdeGeometria: es3MF && !!leerGeometria   // 3MF cotizado con su geometría (perfil y color de la app)
+          desdeGeometria: es3MF && !!leerGeometria,  // 3MF cotizado con su geometría (perfil y color de la app)
+          // Multicolor por geometría: falta el purgado entre colores (puede ser mucho): hay que verificar
+          multicolorSinPurga: (es3MF && !!leerGeometria && ultimoMulticolor) || pintadoUnColor
         })
       } catch(e) {
         terminar('Error leyendo result.json: ' + e.message)
@@ -569,10 +743,124 @@ function laminarConBambu(filePath, scalePct, callback, printer, opciones) {
   }, printer, opciones)
 }
 
+// Pieza que no cabe: se cotiza cortada en bloques (como se imprime). Si no es gigante, también
+// entera en una cama virtual, y se cobra lo MAYOR de las dos: cortar a veces ahorra soportes y
+// da un poco menos, y el dueño no puede perder por una cotización baja.
+const ENTERA_HASTA_MM = 600
+function cotizarNoCabe(filePath, scalePct, callback, printer, opciones, excede, bloques, es3MF) {
+  laminarPartes(bloques, (e, rb) => {
+    if (e === 'CANCELADO') return callback(e)
+    if (e) {
+      // Un bloque no laminó (pasa con cortes muy delgados): si la pieza no es gigante, se cotiza entera
+      if (Math.max(excede.dimX, excede.dimY, excede.dimZ) > ENTERA_HASTA_MM) return callback(e)
+      console.log(`[Brumet] Un bloque falló (${String(e).slice(0, 80)}); se cotiza la pieza entera`)
+      return laminarConBambu(filePath, scalePct, (e2, rv) => e2 ? callback(e2) : callback(null, { ...rv, excede, desdeGeometria: es3MF }),
+        printer, { ...opciones, enBloque: true, leerGeometria: es3MF || (opciones && opciones.leerGeometria) })
+    }
+    const porBloques = { ...rb, excede, enBloques: bloques.length, desdeGeometria: es3MF, multicolorSinPurga: es3MF && ultimoMulticolor }
+    if (Math.max(excede.dimX, excede.dimY) > ENTERA_HASTA_MM || excede.dimZ > ENTERA_HASTA_MM) return callback(null, porBloques)
+    laminarConBambu(filePath, scalePct, (e2, rv) => {
+      if (e2 || !rv) return callback(null, porBloques)   // si entera no se pudo, vale la de bloques
+      const g = Math.max(parseFloat(rb.gramos), parseFloat(rv.gramos))
+      const h = Math.max(parseFloat(rb.horas), parseFloat(rv.horas))
+      if (g === parseFloat(rb.gramos) && h === parseFloat(rb.horas)) return callback(null, porBloques)
+      console.log(`[Brumet] Entera da más que en bloques (${rv.gramos} g / ${rv.horas} h contra ${rb.gramos} g / ${rb.horas} h): se cobra lo mayor`)
+      callback(null, { ...porBloques, multiCama: false, gramos: g.toFixed(2), horas: h.toFixed(2), tiempo: formatTiempo(h * 3600),
+        camas: [{ cama: 1, tiempo: formatTiempo(h * 3600), horas: h.toFixed(2), gramos: g.toFixed(2) }] })
+    }, printer, { ...opciones, enBloque: true, leerGeometria: es3MF || (opciones && opciones.leerGeometria) })
+  }, printer, { enBloque: true })
+}
+
+// ── Perfil de Brumet en proyectos 3MF ──────────────────────────────────────────
+// Un 3MF trae el perfil de quien lo hizo (en MakerWorld suele ser de poco relleno o de otra
+// impresora). Se le ponen los ajustes de proceso de la plantilla (Gemelas) y, si es de otra
+// impresora, también los de la máquina; filamentos y colores quedan los del proyecto (así cuenta
+// el purgado entre colores). Igual que el cotizador de Brumo.
+// Perfil Gemelas y máquina A1 tal como están en el Bambu Studio del dueño (perfiles/*.json, sacados con
+// Brumo con los mismos datos que usa su cotizador; si el dueño cambia Gemelas, hay que volver a sacarlos).
+// Se le pasan al motor aparte (--load-settings) en vez de tocar el proyecto: así Bambu hace la conversión
+// completa (cambiar los ajustes dentro del 3MF dejaba cosas a medias y fallaba).
+function ajustesBrumet(filePath, printer) {
+  if (printer && printer !== 'Bambu A1') return []        // Gemelas es un perfil de la A1
+  const proceso = resolveProfile('proceso_gemelas.json'), maquina = resolveProfile('maquina_a1.json')
+  if (!fs.existsSync(proceso) || !fs.existsSync(maquina)) return []
+  let cfg = {}
+  try { cfg = JSON.parse(new AdmZip(filePath).getEntry('Metadata/project_settings.config').getData().toString('utf8')) } catch(e) { return [] }
+  const impresora = String(cfg.printer_settings_id || '').toLowerCase()
+  const esA1 = /\ba1\b/.test(impresora) && !/mini/.test(impresora)
+  if (!esA1) {
+    console.log(`[Brumet] 3MF hecho para ${cfg.printer_settings_id || '?'}: se lamina para la A1 con Gemelas`)
+    return ['--load-settings', `${maquina};${proceso}`]
+  }
+  if (/gemelas/i.test(String(cfg.print_settings_id || ''))) return []
+  console.log(`[Brumet] 3MF con perfil ${cfg.print_settings_id || '?'}: se lamina con Gemelas`)
+  return ['--load-settings', proceso]
+}
+
+// Resumen de cada placa que deja el motor en el laminado (igual que lo lee el cotizador de Brumo):
+// { [placa]: { segs, gramos } } con el tiempo total y el peso con purga
+function datosDelLaminado(archivo) {
+  const salida = {}
+  try {
+    const xml = new AdmZip(archivo).getEntry('Metadata/slice_info.config').getData().toString('utf8')
+    const re = /<plate>([\s\S]*?)<\/plate>/g
+    let m
+    while ((m = re.exec(xml)) !== null) {
+      const b = m[1]
+      const dato = k => { const r = b.match(new RegExp('key="' + k + '"\s+value="([^"]*)"')); return r ? parseFloat(r[1]) : 0 }
+      const usados = [...b.matchAll(/used_g="([\d.]+)"/g)].reduce((s, x) => s + parseFloat(x[1]), 0)
+      salida[dato('index')] = { segs: dato('prediction'), gramos: Math.max(dato('weight'), usados) }
+    }
+  } catch(e) { /* sin resumen: se usa result.json */ }
+  return salida
+}
+
+// ¿El proyecto trae piezas pintadas a colores?
+function esPintado(filePath) {
+  try {
+    for (const e of new AdmZip(filePath).getEntries()) {
+      if (!/\.model$/i.test(e.entryName)) continue
+      const t = e.getData().toString('utf8')
+      if (t.indexOf('paint_color=') !== -1 || t.indexOf('mmu_segmentation') !== -1) return true
+    }
+  } catch(e) {}
+  return false
+}
+
+function contarPlacas(filePath) {
+  try {
+    const e = new AdmZip(filePath).getEntry('Metadata/model_settings.config')
+    const n = e ? (e.getData().toString('utf8').match(/<plate>/g) || []).length : 0
+    return Math.max(1, n)
+  } catch(e) { return 1 }
+}
+
+// Placa por placa (cuando alguna está vacía) y se suman las que tienen piezas
+function laminarPorPlacas(filePath, scalePct, callback, printer, opciones) {
+  const n = contarPlacas(filePath)
+  const camas = []
+  const siguiente = (k) => {
+    if (k > n) {
+      if (!camas.length) return laminarConBambu(filePath, scalePct, callback, printer, { ...opciones, leerGeometria: true })
+      const g = camas.reduce((s, c) => s + parseFloat(c.gramos), 0), h = camas.reduce((s, c) => s + parseFloat(c.horas), 0)
+      return callback(null, { camas, multiCama: camas.length > 1, tiempo: formatTiempo(h * 3600), horas: h.toFixed(2),
+                              gramos: g.toFixed(2), excede: null, desdeGeometria: false })
+    }
+    laminarConBambu(filePath, scalePct, (err, r) => {
+      if (err === 'CANCELADO') return callback(err)
+      if (err) return laminarConBambu(filePath, scalePct, callback, printer, { ...opciones, leerGeometria: true })  // plan B
+      if (r && !r.vacia) for (const c of r.camas) camas.push({ ...c, cama: camas.length + 1 })
+      siguiente(k + 1)
+    }, printer, { ...opciones, placa: k })
+  }
+  console.log(`[Brumet] El proyecto tiene placas vacías: se lamina placa por placa (${n})`)
+  siguiente(1)
+}
+
 // Modelo cortado en el visor: una pieza (o grupo de piezas) por cama. Se
 // laminan una tras otra y se suman como un resultado de varias camas.
 // Las partes salen del visor ya en mm: no se re-detectan unidades.
-function laminarPartes(archivos, callback, printer) {
+function laminarPartes(archivos, callback, printer, opciones) {
   const camas = []
   const siguiente = (k) => {
     if (k >= archivos.length) {
@@ -584,14 +872,15 @@ function laminarPartes(archivos, callback, printer) {
         tiempo:    formatTiempo(totalHoras * 3600),
         horas:     totalHoras.toFixed(2),
         gramos:    totalGramos.toFixed(2),
-        excede:    null
+        excede:    null,
+        partes:    archivos.length     // piezas que hay que montar (precio de montaje por parte)
       })
     }
     laminarConBambu(archivos[k], 100, (err, r) => {
       if (err) return callback(err === 'CANCELADO' ? err : `Cama ${k + 1} de ${archivos.length}: ${err}`)
       for (const c of r.camas) camas.push({ ...c, cama: camas.length + 1 })
       siguiente(k + 1)
-    }, printer, { unidadesAuto: false })
+    }, printer, { unidadesAuto: false, ...opciones })
   }
   siguiente(0)
 }

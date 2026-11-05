@@ -9,7 +9,7 @@ let viewerWin = null
 const LOG_DIR  = () => path.join(app.getPath('userData'), 'logs')
 const LOG_FILE = () => path.join(LOG_DIR(), 'brumet.log')
 
-function logError(origen, msg) {
+function logError(origen, msg, archivo) {
   try {
     const dir = LOG_DIR(), file = LOG_FILE()
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
@@ -21,7 +21,7 @@ function logError(origen, msg) {
     }
     fs.appendFileSync(file, `[${new Date().toISOString()}] [v${app.getVersion()}] [${origen}] ${msg}\n`)
   } catch(e) { /* el logger nunca debe tumbar la app */ }
-  enviarErrorWebhook(origen, msg)
+  enviarErrorWebhook(origen, msg, archivo)
 }
 
 // ── Reporte automático de errores (webhook) ──────────────────────────────────
@@ -31,7 +31,6 @@ const REPORT_WEBHOOK_URL = (() => {
   try { return JSON.parse(fs.readFileSync(path.join(__dirname, 'webhook.json'), 'utf8')).url || '' }
   catch(e) { return '' }
 })()
-let ultimoEnvioWebhook = 0
 
 function enviarWebhook(content) {
   if (!REPORT_WEBHOOK_URL) return
@@ -51,16 +50,52 @@ function enviarWebhook(content) {
   } catch(e) { /* nunca tumbar la app por un reporte */ }
 }
 
-function enviarErrorWebhook(origen, msg) {
-  const ahora = Date.now()
-  if (ahora - ultimoEnvioWebhook < 60 * 1000) return  // máx 1 por minuto, evita spam
-  ultimoEnvioWebhook = ahora
-  enviarWebhook(
-    `🚨 **Brumet Slicer v${app.getVersion()}** · ${origen}\n` +
-    `Windows ${require('os').release()} · ${new Date().toLocaleString('es-CO')}\n` +
-    '```\n' + String(msg).slice(0, 1500) + '\n```'
-  )
+// Mensajes del laminador que SÍ son fallas de la app (lo demás son avisos pensados
+// para el usuario: "no cabe", "superficie sin grosor"…, que no hay que arreglar).
+const FALLAS_SLICER = [/Error preparando archivo/i, /no generó result\.json/i, /Error leyendo result\.json/i,
+  /no pudo procesar este modelo/i, /No se encontraron camas/i, /tardó más de/i, /Error exportando/i]
+
+function tipoDeError(origen, msg) {
+  if (origen !== 'slicer') return 'falla'               // main, renderer, visor, updater: siempre es falla
+  return FALLAS_SLICER.some(re => re.test(String(msg))) ? 'falla' : 'aviso'
 }
+
+// Formato fijo (Brumo lo lee para avisar al dueño y proponer el arreglo):
+// "🚨 **Brumet Slicer vX** · origen · falla" (o "⚠️ … · aviso") + PC + detalle en bloque de código.
+// Ningún error se pierde: el mismo mensaje repetido dentro de 1 minuto se junta y se cuenta.
+const repetidos = new Map()   // mensaje → { veces }
+function enviarErrorWebhook(origen, msg, archivo) {
+  const clave = origen + '|' + String(msg).slice(0, 300)
+  const previo = repetidos.get(clave)
+  if (previo) { previo.veces++; return }
+  const tipo = tipoDeError(origen, msg)
+  const texto = (veces) =>
+    `${tipo === 'falla' ? '🚨' : '⚠️'} **Brumet Slicer v${app.getVersion()}** · ${origen} · ${tipo}\n` +
+    `💻 ${require('os').hostname()} · Windows ${require('os').release()} · ${new Date().toLocaleString('es-CO')}` +
+    (veces > 1 ? ` · se repitió ${veces} veces` : '') + '\n' +
+    '```\n' + String(msg).slice(0, 1500) + '\n```'
+  const reg = { veces: 1 }
+  repetidos.set(clave, reg)
+  // A una falla del laminador se le adjunta el modelo (comprimido) para poder reproducirla
+  if (tipo === 'falla' && archivo && fs.existsSync(archivo) && fs.statSync(archivo).size < 40 * 1024 * 1024) {
+    try {
+      const AdmZip = require('adm-zip')
+      const zip = new AdmZip()
+      zip.addFile(path.basename(archivo), fs.readFileSync(archivo))
+      const buf = zip.toBuffer()
+      if (buf.length <= DISCORD_MAX_BYTES)
+        enviarWebhookConArchivo(texto(1), path.basename(archivo).replace(/\.[^.]+$/, '') + '.zip', buf)
+          .then(ok => { if (!ok) enviarWebhook(texto(1)) })
+      else enviarWebhook(texto(1) + '\n(El modelo pesa demasiado para adjuntarlo.)')
+    } catch(e) { enviarWebhook(texto(1)) }
+  } else enviarWebhook(texto(1))
+  setTimeout(() => {
+    repetidos.delete(clave)
+    if (reg.veces > 1) enviarWebhook(texto(reg.veces))
+  }, 60 * 1000)
+}
+
+const DISCORD_MAX_BYTES = 9.5 * 1024 * 1024
 
 // POST multipart al webhook con archivo adjunto (límite Discord: 10 MB)
 function enviarWebhookConArchivo(content, filename, buffer) {
@@ -91,7 +126,6 @@ function enviarWebhookConArchivo(content, filename, buffer) {
 
 // Pedido aprobado por el cliente: info completa + STL adjunto (zipeado).
 // Si el ZIP excede el límite de Discord, llega el mensaje sin archivo.
-const DISCORD_MAX_BYTES = 9.5 * 1024 * 1024
 ipcMain.handle('aprobar-cotizacion', async (ev, q) => {
   if (!REPORT_WEBHOOK_URL) return { error: 'Canal de pedidos no configurado' }
   try {
@@ -138,13 +172,14 @@ ipcMain.on('log-cotizacion', (ev, q) => {
     `⏱ ${q.tiempo}${q.cantidad > 1 ? ' por pieza' : ''} · ⚖️ ${q.gramos}g${q.cantidad > 1 ? ' por pieza' : ''}` +
     (q.cantidad > 1 ? `\n🔢 ${q.cantidad} piezas · unitario ${fmt(q.precioUnitario)}${q.descuentoPct > 0 ? ` · desc ${q.descuentoPct}%` : ''}` : '') +
     `\n💵 **Total: ${fmt(q.precio)} COP**` +
-    (q.cliente ? `\n👤 ${q.cliente}` : '')
+    (q.cliente ? `\n👤 ${q.cliente}` : '') +
+    (q.porVerificar ? '\n🛑 **Por verificar:** multicolor cotizado sin el purgado de colores (el motor no lo pudo laminar con sus colores)' : '')
   )
 })
 
 process.on('uncaughtException', (e) => logError('main', 'uncaughtException: ' + (e.stack || e.message)))
 
-ipcMain.on('log-error', (ev, origen, msg) => logError(origen || 'renderer', msg))
+ipcMain.on('log-error', (ev, origen, msg, archivo) => logError(origen || 'renderer', msg, archivo))
 
 ipcMain.handle('report-problem', () => {
   try {
@@ -305,7 +340,7 @@ ipcMain.handle('slice-model', async (event, filePath, extraData) => {
     const printer     = extraData && extraData.impresora  ? extraData.impresora : 'Bambu A1'
     const terminar = (err, resultado) => {
       if (err) {
-        if (err !== 'CANCELADO') logError('slicer', `${path.basename(originalPath)} [${printer}]: ${err}`)
+        if (err !== 'CANCELADO') logError('slicer', `${path.basename(originalPath)} [${printer}]: ${err}`, originalPath)
         reject(err); return
       }
       resolve(resultado)
@@ -503,6 +538,8 @@ ${data.descuentoPct > 0 ? `<div class="row"><span class="lbl">Descuento por mayo
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   createWindow()
+  // Aviso en tiempo real de que alguien abrió la app (para seguir el uso mientras está en desarrollo)
+  enviarWebhook(`🟢 Abrieron **Brumet Slicer v${app.getVersion()}** · 💻 ${require('os').hostname()} · ${new Date().toLocaleString('es-CO')}`)
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
