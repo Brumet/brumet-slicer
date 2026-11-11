@@ -336,7 +336,7 @@ body{background:var(--bg);font-family:'Inter',-apple-system,sans-serif;color:var
     <div class="lic-title" id="licenseMsg">Licencia Vencida</div>
     <div class="lic-sub" id="lic-sub-text">Tu periodo de prueba de <strong>30 dias</strong> ha terminado.<br>Ingresa tu codigo o contactanos.</div>
     <input class="lic-input" id="licenseInput" type="text" placeholder="BRUMET-XXXX-XXXX" onkeydown="if(event.key==='Enter')tryActivate()">
-    <div class="lic-error" id="licenseError">Codigo invalido o ya utilizado.</div>
+    <div class="lic-error" id="licenseError">Clave incorrecta.</div>
     <button class="lic-btn" onclick="tryActivate()">Activar Licencia</button>
     <div class="lic-divider"><div class="lic-divider-line"></div><div class="lic-divider-text">O Contactanos</div><div class="lic-divider-line"></div></div>
     <a class="wa-btn" href="https://wa.me/573106078712?text=Hola%20Brumet%2C%20necesito%20activar%20mi%20licencia" target="_blank">
@@ -1514,29 +1514,42 @@ function compartirWhatsApp() {
 }
 
 // ── License ────────────────────────────────────────────────────────────────
+// Sin códigos ni periodo de prueba: la app funciona completa en cualquier PC hasta FECHA_LIMITE.
+// Desde esa fecha se bloquea sola en todos los equipos, salvo los de Brumet (PCS_BRUMET o
+// desbloqueado con la clave del administrador). Para mover la fecha: cambiarla aquí y publicar una versión.
 const fs=require('fs'),path=require('path'),os=require('os'),crypto=require('crypto')
 const LICENSE_FILE=path.join(os.homedir(),'AppData','Roaming','Brumet Slicer','license.json')
-const TRIAL_DAYS=30, LICENSE_DAYS=183
-let VALID_HASHES = []  // se cargan desde licenses.json vía IPC
-function hashCode(c){return crypto.createHash('sha256').update(c.trim().toUpperCase()).digest('hex')}
+const FECHA_LIMITE=new Date('2027-03-01T00:00:00-05:00').getTime()  // funciona hasta el 28-feb-2027 (hora Colombia)
+const PCS_BRUMET=['BRUMET-HOME']
+const CLAVE_ADMIN='291f0d41148aead5f73026aa03ee029f83379dc73930ddd30dbf43ca04940a0b'
+let VALID_HASHES = []  // ya no se usan (se deja por compatibilidad con licenses.json)
+function hashCode(c){return crypto.createHash('sha256').update(c.trim()).digest('hex')}
 function loadLicense(){try{if(fs.existsSync(LICENSE_FILE))return JSON.parse(fs.readFileSync(LICENSE_FILE,'utf8'))}catch(e){}return null}
-function saveLicense(d){const dir=path.dirname(LICENSE_FILE);if(!fs.existsSync(dir))fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(LICENSE_FILE,JSON.stringify(d),'utf8')}
+function saveLicense(d){try{const dir=path.dirname(LICENSE_FILE);if(!fs.existsSync(dir))fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(LICENSE_FILE,JSON.stringify(d),'utf8')}catch(e){}}
+function esPcBrumet(lic){return PCS_BRUMET.includes(os.hostname().toUpperCase()) || !!(lic&&lic.brumet)}
 function checkLicense(){
-  let lic=loadLicense(); const now=Date.now()
-  if(!lic){lic={type:'trial',startDate:now};saveLicense(lic)}
-  if(lic.type==='trial'){const d=Math.ceil((TRIAL_DAYS*86400000-(now-lic.startDate))/86400000);if(d<=0)return{status:'expired_trial'};return{status:'trial',daysLeft:d}}
-  if(lic.type==='licensed'){const d=Math.ceil((LICENSE_DAYS*86400000-(now-lic.activationDate))/86400000);if(d<=0)return{status:'expired_license'};return{status:'licensed',daysLeft:d}}
-  return{status:'expired_trial'}
+  const lic=loadLicense()||{}, now=Date.now()
+  if(esPcBrumet(lic)) return{status:'licensed'}
+  // Si alguien atrasa el reloj del PC, se toma la fecha más alta que la app ya vio.
+  const visto=Math.max(now, Number(lic.ultimaFecha)||0)
+  if(visto!==lic.ultimaFecha){lic.ultimaFecha=visto;saveLicense(lic)}
+  return visto<FECHA_LIMITE?{status:'licensed'}:{status:'expired_license'}
 }
 function activateCode(code){
-  const hash=hashCode(code.trim())
-  if(!VALID_HASHES.includes(hash)) return false
-  const lic=loadLicense()||{}; if(lic.usedCode===hash) return false
-  saveLicense({type:'licensed',activationDate:Date.now(),usedCode:hash}); return true
+  // Solo la clave del administrador desbloquea un equipo de Brumet después de la fecha límite.
+  if(hashCode(code)!==CLAVE_ADMIN) return false
+  const lic=loadLicense()||{}; lic.brumet=true; saveLicense(lic); return true
 }
 function showApp(){document.getElementById('licenseScreen').style.display='none';document.getElementById('mainApp').style.display='block'}
-function showTrialBanner(d){const b=document.getElementById('trialBanner');if(b){b.style.display='flex';document.getElementById('trialDays').textContent=d}}
-function showLicenseScreen(s){document.getElementById('licenseScreen').style.display='flex';document.getElementById('mainApp').style.display='none';document.getElementById('licenseMsg').textContent=s==='expired_trial'?'Periodo de Prueba Vencido':'Licencia Vencida'}
+function showTrialBanner(){}
+function showLicenseScreen(){
+  document.getElementById('licenseScreen').style.display='flex';document.getElementById('mainApp').style.display='none'
+  document.getElementById('licCloseBtn').style.display='none'
+  document.getElementById('licenseMsg').textContent='Licencia Vencida'
+  document.getElementById('lic-sub-text').innerHTML='El periodo de uso de Brumet Slicer terminó.<br>Contáctanos para renovarlo.'
+  document.getElementById('licenseInput').placeholder='Clave de Brumet'
+  document.getElementById('licenseInput').type='password'
+}
 function tryActivate(){
   const code=document.getElementById('licenseInput').value.trim(); if(!code) return
   if(activateCode(code)){
